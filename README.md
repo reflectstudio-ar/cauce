@@ -38,9 +38,12 @@ Gentleman Programming, and `gentle-shell`/`gentle-pi` remain their author's trad
 
 ```sh
 corepack pnpm@11 install
-node node_modules/electron/install.js   # Electron's binary; pnpm may skip the download
 corepack pnpm@11 dev
 ```
+
+Electron 44 no longer downloads its binary from a package postinstall, so this
+repo's own `postinstall` runs `node node_modules/electron/install.js` for you.
+If you ever see `Error: Electron uninstall`, run that command by hand.
 
 `corepack pnpm@11 dev:web` runs the renderer alone against an in-memory mock bridge at
 `http://localhost:5173`, which is handy for UI work without spawning a real agent.

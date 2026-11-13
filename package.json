@@ -13,6 +13,7 @@
     "url": "git+https://github.com/reflectstudio-ar/cauce.git"
   },
   "scripts": {
+    "postinstall": "node node_modules/electron/install.js",
     "dev": "electron-vite dev",
     "dev:web": "vite --config vite.web.config.ts",
     "build": "electron-vite build",

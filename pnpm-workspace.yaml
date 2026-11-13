@@ -5,6 +5,10 @@ allowBuilds:
   # check. Both ship from a trusted same-org (@earendil-works) dependency
   # already used elsewhere in the Gentle stack.
   '@google/genai': true
+  # pnpm flags Electron as needing a build; allow it. The binary itself is
+  # downloaded by this repo's own postinstall (Electron 44 no longer ships
+  # one), so installs stay quiet either way.
+  electron: true
   electron-winstaller: false
   esbuild: true
   protobufjs: true
