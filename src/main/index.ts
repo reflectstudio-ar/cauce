@@ -1,5 +1,5 @@
 import path from "node:path";
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, ipcMain, nativeTheme, shell } from "electron";
 import {
   createAppConfigStore,
   createDynamicPiSessionStore,
@@ -12,6 +12,18 @@ import { boundedStop } from "./domain/lifecycle/boundedStop";
 import { homeDirFor, resolveHomeMode } from "./domain/home/home";
 import { ChatHost } from "./domain/session/ChatHost";
 import { registerHandlers } from "./ipc/registerHandlers";
+import { installAppMenu, REPO_URL } from "./menu";
+
+// Product identity. Set before `whenReady` so the macOS application menu
+// (and the About panel it opens) uses "Cauce" instead of Electron's default
+// name in both dev and packaged runs.
+app.setName("Cauce");
+app.setAboutPanelOptions({
+  applicationName: "Cauce",
+  applicationVersion: app.getVersion(),
+  website: REPO_URL,
+  copyright: "MIT · built on gentle-shell-desktop by Gentleman Programming",
+});
 
 // `import.meta.dirname` directly (not a manually computed
 // `path.dirname(fileURLToPath(import.meta.url))` `__dirname`), and under
@@ -75,8 +87,10 @@ function createWindow(): void {
   const window = new BrowserWindow({
     width: 1280,
     height: 820,
-    title: "gentle shell",
-    backgroundColor: "#060407",
+    title: "Cauce",
+    // Matches the renderer's --bg in each scheme, so the window never
+    // flashes the wrong colour before the first paint.
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#0a0a0a" : "#faf7f2",
     show: false,
     webPreferences: {
       preload: path.join(moduleDir, "../preload/index.mjs"),
@@ -87,6 +101,7 @@ function createWindow(): void {
   });
 
   const unregisterHandlers = registerHandlers(chatHost, setupService, window.webContents, ipcMain);
+  installAppMenu(window);
   window.on("closed", unregisterHandlers);
 
   // Assistant replies now render Markdown links (Markdown.tsx forces

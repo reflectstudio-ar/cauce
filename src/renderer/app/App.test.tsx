@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import { mockBridge } from "@renderer/shared/bridge/mockBridge";
 import { App } from "./App";
 
 // `?firstRun=0` forces mockBridge.setupStatus() to needsChoice: false (see
@@ -13,6 +14,7 @@ describe("App", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     window.history.pushState({}, "", "/");
   });
 
@@ -31,6 +33,21 @@ describe("App", () => {
     expect(await screen.findAllByRole("heading", { name: "New chat" })).toHaveLength(1);
   });
 
+  it("starts a new session when New chat is clicked while the default new chat is open", async () => {
+    // Regression for upstream #31: handleNewChat used the same module-level
+    // object the state started with, so React skipped the render and
+    // ConversationContainer never called bridge.newChat() again.
+    const newChat = vi.spyOn(mockBridge, "newChat");
+    render(<App />);
+
+    const button = await screen.findByRole("button", { name: "New chat" });
+    await waitFor(() => expect(newChat).toHaveBeenCalledTimes(1));
+
+    button.click();
+
+    await waitFor(() => expect(newChat).toHaveBeenCalledTimes(2));
+  });
+
   it("selecting a sidebar chat updates the conversation header title", async () => {
     render(<App />);
 
@@ -46,7 +63,7 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Welcome to gentle shell" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Welcome to Cauce" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Chats" })).not.toBeInTheDocument();
   });
 
@@ -59,6 +76,6 @@ describe("App", () => {
     button.click();
 
     expect(await screen.findByRole("heading", { name: "Chats" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Welcome to gentle shell" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Welcome to Cauce" })).not.toBeInTheDocument();
   });
 });

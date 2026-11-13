@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ChatSummary } from "@shared/bridge-types";
 import { useBridge } from "@renderer/shared/bridge/useBridge";
 import { ChatsContainer } from "@renderer/features/chats/ChatsContainer";
@@ -55,9 +55,18 @@ export function App() {
     setActiveChat({ kind: "existing", chat });
   };
 
-  const handleNewChat = (): void => {
-    setActiveChat(NEW_CHAT);
-  };
+  const handleNewChat = useCallback((): void => {
+    // A FRESH object on every click, never the shared NEW_CHAT constant:
+    // React bails out of a setState whose value is reference-equal to the
+    // current one, so clicking "New chat" while the default new chat was
+    // open never re-rendered, and ConversationContainer's effect (the only
+    // caller of bridge.newChat()) never ran. Upstream issue #31.
+    setActiveChat({ kind: "new" });
+  }, []);
+
+  // Cmd/Ctrl+N from the native menu lands here instead of adding another
+  // click path: it reuses the exact same handler the sidebar button uses.
+  useEffect(() => bridge.onMenuNewChat(handleNewChat), [bridge, handleNewChat]);
 
   if (screen === SCREEN.LOADING) return <div className="gc-app-loading" />;
   if (screen === SCREEN.FIRST_RUN) return <FirstRunContainer onDone={() => setScreen(SCREEN.CHAT)} />;

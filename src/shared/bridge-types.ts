@@ -286,6 +286,9 @@ export interface GentleBridge {
   onState(callback: (state: ChatState) => void): () => void;
   /** Subscribes to error messages surfaced by the currently open chat. Returns an unsubscribe function. */
   onError(callback: (message: string) => void): () => void;
+  /** Subscribes to the native menu's "New Chat" item (Cmd/Ctrl+N).
+   * Returns an unsubscribe function. */
+  onMenuNewChat(callback: () => void): () => void;
   /** Whether to show the first-run home-choice screen, and what pi
    * detection found. */
   setupStatus(): Promise<SetupStatus>;

@@ -477,6 +477,11 @@ export const mockBridge: GentleBridge = {
     return () => errorListeners.delete(callback);
   },
 
+  // No native menu outside Electron (dev:web), so nothing ever fires it.
+  onMenuNewChat(): () => void {
+    return () => undefined;
+  },
+
   async setupStatus(): Promise<SetupStatus> {
     const override = firstRunOverride();
     const needsChoice = override ?? homeChoice === undefined;

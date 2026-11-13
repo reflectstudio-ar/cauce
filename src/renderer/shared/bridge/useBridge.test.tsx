@@ -26,6 +26,7 @@ describe("useBridge", () => {
       answerDialog: vi.fn(),
       onState: vi.fn(),
       onError: vi.fn(),
+      onMenuNewChat: vi.fn(),
       setupStatus: vi.fn(),
       chooseHome: vi.fn(),
     };

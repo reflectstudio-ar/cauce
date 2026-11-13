@@ -39,5 +39,11 @@ export function createBridge(ipc: RendererIpc): GentleBridge {
       ipc.on(IPC_CHANNELS.ERROR_PUSH, listener);
       return () => ipc.removeListener(IPC_CHANNELS.ERROR_PUSH, listener);
     },
+
+    onMenuNewChat(callback: () => void): () => void {
+      const listener = (): void => callback();
+      ipc.on(IPC_CHANNELS.MENU_NEW_CHAT, listener);
+      return () => ipc.removeListener(IPC_CHANNELS.MENU_NEW_CHAT, listener);
+    },
   };
 }

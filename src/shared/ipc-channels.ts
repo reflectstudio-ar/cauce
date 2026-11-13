@@ -20,6 +20,8 @@ export const IPC_CHANNELS = {
   SETUP_STATUS: "setup.status",
   /** Persists the chosen home mode (T5). */
   CHOOSE_HOME: "setup.chooseHome",
+  /** webContents.send push: the native menu's "New Chat" was chosen. */
+  MENU_NEW_CHAT: "menu.newChat",
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
