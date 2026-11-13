@@ -420,6 +420,21 @@ describe("reduceChat: extension UI dialogs", () => {
   });
 });
 
+describe("reduceChat: queue updates", () => {
+  it("stores the steering and follow-up queues pi reports", () => {
+    const state = reduceChat(INITIAL_CHAT_STATE, { type: "queue_update", steering: ["a"], followUp: ["b"] });
+
+    expect(state.queue).toEqual({ steering: ["a"], followUp: ["b"] });
+  });
+
+  it("clears both queues when pi reports them empty", () => {
+    const before = { ...INITIAL_CHAT_STATE, queue: { steering: ["a"], followUp: ["b"] } };
+    const state = reduceChat(before, { type: "queue_update", steering: [], followUp: [] });
+
+    expect(state.queue).toEqual({ steering: [], followUp: [] });
+  });
+});
+
 describe("reduceChat: errors and unhandled events", () => {
   it("extension_error sets lastError", () => {
     const state = reduceChat(INITIAL_CHAT_STATE, {

@@ -1,4 +1,4 @@
-import type { ChatState, ChatSummary, DialogAnswer, PromptResult } from "@shared/bridge-types";
+import type { ChatState, ChatSummary, DialogAnswer, PromptImage, PromptResult, QueueState } from "@shared/bridge-types";
 import { boundedStop } from "../lifecycle/boundedStop";
 import type { RpcEvent } from "../rpc/types";
 import type { HomeSettings, LauncherLocator, ProcessSpawner, SessionStore } from "../../ports";
@@ -112,12 +112,18 @@ export class ChatHost {
     return this.startSession(undefined);
   }
 
-  /** Resolves the PromptResult as-is instead of throwing when the
-   * assistant is already working: PiSession.prompt already reports the
-   * decline once (state push + this return value), so rejecting here too
-   * would report it a second time through the IPC error path. */
-  async sendMessage(text: string): Promise<PromptResult> {
-    return this.requireCurrent().prompt(text);
+  /** Sends a prompt; while the agent is working, PiSession queues it as
+   * steering instead of declining it. */
+  async sendMessage(text: string, images: readonly PromptImage[] = []): Promise<PromptResult> {
+    return this.requireCurrent().prompt(text, images);
+  }
+
+  async followUp(text: string, images: readonly PromptImage[] = []): Promise<PromptResult> {
+    return this.requireCurrent().followUp(text, images);
+  }
+
+  async clearQueue(): Promise<QueueState> {
+    return this.requireCurrent().clearQueue();
   }
 
   async abort(): Promise<void> {

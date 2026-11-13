@@ -1,5 +1,5 @@
 import type { IpcMain, WebContents } from "electron";
-import type { DialogAnswer, HomeMode } from "@shared/bridge-types";
+import type { DialogAnswer, HomeMode, PromptImage } from "@shared/bridge-types";
 import { IPC_CHANNELS } from "@shared/ipc-channels";
 import type { ChatHost } from "../domain/session/ChatHost";
 import type { SetupService } from "../ports";
@@ -28,7 +28,13 @@ export function registerHandlers(host: ChatHost, setup: SetupService, webContent
   registerRequestHandler(ipc, IPC_CHANNELS.LIST_CHATS, () => host.listChats());
   registerRequestHandler(ipc, IPC_CHANNELS.OPEN_CHAT, (_event, id: string) => host.openChat(id));
   registerRequestHandler(ipc, IPC_CHANNELS.NEW_CHAT, () => host.newChat());
-  registerRequestHandler(ipc, IPC_CHANNELS.SEND_MESSAGE, (_event, text: string) => host.sendMessage(text));
+  registerRequestHandler(ipc, IPC_CHANNELS.SEND_MESSAGE, (_event, text: string, images?: readonly PromptImage[]) =>
+    host.sendMessage(text, images ?? []),
+  );
+  registerRequestHandler(ipc, IPC_CHANNELS.FOLLOW_UP, (_event, text: string, images?: readonly PromptImage[]) =>
+    host.followUp(text, images ?? []),
+  );
+  registerRequestHandler(ipc, IPC_CHANNELS.CLEAR_QUEUE, () => host.clearQueue());
   registerRequestHandler(ipc, IPC_CHANNELS.ABORT, () => host.abort());
   registerRequestHandler(ipc, IPC_CHANNELS.ANSWER_DIALOG, (_event, id: string, answer: DialogAnswer) =>
     host.answerDialog(id, answer),

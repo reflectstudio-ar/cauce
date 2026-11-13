@@ -27,6 +27,20 @@ describe("MessageBubble", () => {
     expect(container.querySelector(".gc-message--user")).not.toBeNull();
   });
 
+  it("renders attached images on a user message", () => {
+    const message: ChatMessage = {
+      id: "m1",
+      role: MESSAGE_ROLE.USER,
+      text: "look",
+      images: [{ type: "image", data: "aGVsbG8=", mimeType: "image/png" }],
+    };
+    const { container } = render(<MessageBubble message={message} />);
+
+    const image = container.querySelector("img");
+    expect(image).not.toBeNull();
+    expect(image?.getAttribute("src")).toBe("data:image/png;base64,aGVsbG8=");
+  });
+
   it("renders thinking behind a disclosure and tool calls as cards", () => {
     const message: ChatMessage = {
       id: "m1",

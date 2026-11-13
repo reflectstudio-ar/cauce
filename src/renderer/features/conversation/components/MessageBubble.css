@@ -25,6 +25,21 @@
   white-space: pre-wrap;
 }
 
+.gc-message__images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.gc-message__images img {
+  max-width: 180px;
+  max-height: 180px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  object-fit: cover;
+}
+
 /* A message carrying thinking or tool calls spans the column: a tool card
    squeezed into 65ch is unreadable, and the diff needs the width. */
 .gc-message--rich {

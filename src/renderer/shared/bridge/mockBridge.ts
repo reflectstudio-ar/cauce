@@ -17,7 +17,9 @@ import {
   type HomeMode,
   type MessageBlock,
   type PiDetection,
+  type PromptImage,
   type PromptResult,
+  type QueueState,
   type SetupStatus,
   TOOL_STATUS,
 } from "@shared/bridge-types";
@@ -140,9 +142,14 @@ function setState(state: ChatState): void {
   for (const listener of stateListeners) listener(state);
 }
 
-function makeMessage(role: ChatMessage["role"], text: string, streaming = false): ChatMessage {
+function makeMessage(
+  role: ChatMessage["role"],
+  text: string,
+  streaming = false,
+  images: readonly PromptImage[] = [],
+): ChatMessage {
   nextMessageId += 1;
-  return { id: `mock-${nextMessageId}`, role, text, streaming };
+  return { id: `mock-${nextMessageId}`, role, text, streaming, ...(images.length > 0 ? { images } : {}) };
 }
 
 function delay(ms: number): Promise<void> {
@@ -207,12 +214,19 @@ async function streamReply(userText: string): Promise<void> {
     show();
   }
 
+  // The turn ends: steering messages were delivered (they become user
+  // messages in the thread), follow-ups stay queued for the next run.
+  const consumed = currentState.queue?.steering ?? [];
   setState({
     ...currentState,
     working: false,
-    messages: currentState.messages.map((message) =>
-      message.id === assistantMessage.id ? { ...message, streaming: false } : message,
-    ),
+    queue: { steering: [], followUp: currentState.queue?.followUp ?? [] },
+    messages: [
+      ...currentState.messages.map((message) =>
+        message.id === assistantMessage.id ? { ...message, streaming: false } : message,
+      ),
+      ...consumed.map((text) => makeMessage(MESSAGE_ROLE.USER, text)),
+    ],
   });
 }
 
@@ -471,15 +485,16 @@ export const mockBridge: GentleBridge = {
     return currentState;
   },
 
-  async sendMessage(text: string): Promise<PromptResult> {
-    // Mirrors the real ChatHost/PiSession contract (T5): a declined prompt
-    // resolves { queued: false, reason } instead of notifying onError, so
-    // the caller reports it exactly once.
+  async sendMessage(text: string, images: readonly PromptImage[] = []): Promise<PromptResult> {
+    // While working, a message is accepted as steering instead of declined —
+    // the same behaviour PiSession implements over pi's `steer` command.
     if (currentState.working) {
-      return { queued: false, reason: "Gentle is still working" };
+      const steering = [...(currentState.queue?.steering ?? []), text];
+      setState({ ...currentState, queue: { steering, followUp: currentState.queue?.followUp ?? [] } });
+      return { queued: true };
     }
 
-    const userMessage = makeMessage(MESSAGE_ROLE.USER, text);
+    const userMessage = makeMessage(MESSAGE_ROLE.USER, text, false, images);
     setState({ ...currentState, messages: [...currentState.messages, userMessage] });
 
     // Dialog and error scenarios await their own (short) delay before
@@ -499,6 +514,18 @@ export const mockBridge: GentleBridge = {
     }
     void streamReply(text);
     return { queued: true };
+  },
+
+  async followUp(text: string): Promise<PromptResult> {
+    const followUp = [...(currentState.queue?.followUp ?? []), text];
+    setState({ ...currentState, queue: { steering: currentState.queue?.steering ?? [], followUp } });
+    return { queued: true };
+  },
+
+  async clearQueue(): Promise<QueueState> {
+    const queue = currentState.queue ?? { steering: [], followUp: [] };
+    setState({ ...currentState, queue: { steering: [], followUp: [] } });
+    return queue;
   },
 
   async abort(): Promise<void> {

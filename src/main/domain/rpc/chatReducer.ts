@@ -65,6 +65,11 @@ export function reduceChat(state: ChatState, event: RpcEvent, now?: string): Cha
       return applyAssistantMessageEvent(state, event.assistantMessageEvent);
     case "message_end":
       return closeAssistantMessage(state, event.message);
+    case "queue_update":
+      return {
+        ...state,
+        queue: { steering: [...event.steering], followUp: [...event.followUp] },
+      };
     case "tool_execution_start":
     case "tool_execution_update":
     case "tool_execution_end":

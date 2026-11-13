@@ -447,7 +447,7 @@ describe("PiSession: Electron host follow-ups", () => {
     expect(errors[0]?.message).toMatch(/already started|active/i);
   });
 
-  it("rejects prompt() while working: no message appended, no stdin write, lastError set", () => {
+  it("queues prompt() as steering while working: no message appended, a steer command written", () => {
     const { spawner, handles } = createFakeSpawner();
     const session = new PiSession({ spawner, locator: fakeLocator, env: {} });
 
@@ -458,10 +458,10 @@ describe("PiSession: Electron host follow-ups", () => {
     const beforeCount = session.getState().messages.length;
     const result = session.prompt("another message");
 
-    expect(result).toEqual({ queued: false, reason: "Gentle is still working" });
+    expect(result).toEqual({ queued: true });
     expect(session.getState().messages).toHaveLength(beforeCount);
-    expect(handles[0]?.writes).toEqual([]);
-    expect(session.getState().lastError).toBe("Gentle is still working");
+    expect(session.getState().lastError).toBeUndefined();
+    expect(JSON.parse(handles[0]?.writes[0] ?? "{}")).toEqual({ type: "steer", message: "another message" });
   });
 
   it("prompt() while idle still queues normally and returns { queued: true }", () => {
@@ -607,5 +607,84 @@ describe("PiSession: Electron host follow-ups", () => {
 
     expect(session.getState().messages).toHaveLength(1);
     expect(session.getState().messages[0]).toMatchObject({ text: "hi there" });
+  });
+});
+
+describe("PiSession: images, follow-up and queue", () => {
+  const IMAGE = { type: "image" as const, data: "aGVsbG8=", mimeType: "image/png" };
+
+  it("sends images with the prompt and keeps them on the user message", () => {
+    const { spawner, handles } = createFakeSpawner();
+    const session = new PiSession({ spawner, locator: fakeLocator, env: {} });
+    session.start();
+
+    session.prompt("look at this", [IMAGE]);
+
+    expect(JSON.parse(handles[0]?.writes[0] ?? "{}")).toEqual({
+      type: "prompt",
+      message: "look at this",
+      images: [IMAGE],
+    });
+    expect(session.getState().messages[0]).toMatchObject({ role: "user", text: "look at this", images: [IMAGE] });
+  });
+
+  it("sends a steer with images while working", () => {
+    const { spawner, handles } = createFakeSpawner();
+    const session = new PiSession({ spawner, locator: fakeLocator, env: {} });
+    session.start();
+    handles[0]?.emitStdout(JSON.stringify({ type: "agent_start" }));
+
+    session.prompt("and this", [IMAGE]);
+
+    expect(JSON.parse(handles[0]?.writes[0] ?? "{}")).toEqual({
+      type: "steer",
+      message: "and this",
+      images: [IMAGE],
+    });
+  });
+
+  it("followUp writes follow_up and does not append a user message", () => {
+    const { spawner, handles } = createFakeSpawner();
+    const session = new PiSession({ spawner, locator: fakeLocator, env: {} });
+    session.start();
+
+    const result = session.followUp("afterwards");
+
+    expect(result).toEqual({ queued: true });
+    expect(JSON.parse(handles[0]?.writes[0] ?? "{}")).toEqual({ type: "follow_up", message: "afterwards" });
+    expect(session.getState().messages).toHaveLength(0);
+  });
+
+  it("clearQueue resolves with the queues pi returns for that request", async () => {
+    const { spawner, handles } = createFakeSpawner();
+    const session = new PiSession({ spawner, locator: fakeLocator, env: {} });
+    session.start();
+
+    const pending = session.clearQueue();
+    const sent = JSON.parse(handles[0]?.writes.at(-1) ?? "{}");
+    expect(sent.type).toBe("clear_queue");
+
+    handles[0]?.emitStdout(
+      JSON.stringify({
+        type: "response",
+        id: sent.id,
+        command: "clear_queue",
+        success: true,
+        data: { steering: ["first"], followUp: ["second"] },
+      }),
+    );
+
+    await expect(pending).resolves.toEqual({ steering: ["first"], followUp: ["second"] });
+    expect(session.getState().queue).toEqual({ steering: [], followUp: [] });
+  });
+
+  it("queue_update folds into state.queue", () => {
+    const { spawner, handles } = createFakeSpawner();
+    const session = new PiSession({ spawner, locator: fakeLocator, env: {} });
+    session.start();
+
+    handles[0]?.emitStdout(JSON.stringify({ type: "queue_update", steering: ["a"], followUp: ["b"] }));
+
+    expect(session.getState().queue).toEqual({ steering: ["a"], followUp: ["b"] });
   });
 });

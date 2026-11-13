@@ -24,8 +24,22 @@
 // Commands (stdin)
 // ---------------------------------------------------------------------------
 
+export interface RpcImage {
+  readonly type: "image";
+  readonly data: string;
+  readonly mimeType: string;
+}
+
 export type RpcCommand =
-  | { readonly type: "prompt"; readonly message: string }
+  | {
+      readonly type: "prompt";
+      readonly message: string;
+      readonly images?: readonly RpcImage[];
+      readonly streamingBehavior?: "steer" | "followUp";
+    }
+  | { readonly type: "steer"; readonly message: string; readonly images?: readonly RpcImage[] }
+  | { readonly type: "follow_up"; readonly message: string; readonly images?: readonly RpcImage[] }
+  | { readonly type: "clear_queue"; readonly id?: string }
   | { readonly type: "abort" }
   | { readonly type: "new_session" }
   | { readonly type: "switch_session"; readonly sessionPath: string }
@@ -150,6 +164,7 @@ export type RpcEvent =
   | { readonly type: "message_start"; readonly message: RpcMessage }
   | { readonly type: "message_update"; readonly assistantMessageEvent: AssistantMessageEvent }
   | { readonly type: "message_end"; readonly message: RpcMessage }
+  | { readonly type: "queue_update"; readonly steering: readonly string[]; readonly followUp: readonly string[] }
   | { readonly type: "tool_execution_start"; readonly toolCallId: string; readonly toolName: string; readonly args?: unknown }
   | {
       readonly type: "tool_execution_update";

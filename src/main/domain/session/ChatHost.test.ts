@@ -207,7 +207,7 @@ describe("ChatHost", () => {
     expect(handles).toHaveLength(2);
   });
 
-  it("sendMessage while the assistant is working resolves { queued: false, reason } instead of rejecting (report once)", async () => {
+  it("sendMessage while the assistant is working queues it as steering instead of rejecting", async () => {
     const { spawner, handles } = createFakeSpawner();
     const host = new ChatHost({ spawner, locator: fakeLocator, sessionStore: fakeSessionStore([]), env: {} });
 
@@ -216,8 +216,8 @@ describe("ChatHost", () => {
 
     const result = await host.sendMessage("another message");
 
-    expect(result).toEqual({ queued: false, reason: "Gentle is still working" });
-    expect(handles[0]?.writes).toEqual([]);
+    expect(result).toEqual({ queued: true });
+    expect(JSON.parse(handles[0]?.writes[0] ?? "{}")).toEqual({ type: "steer", message: "another message" });
   });
 
   it("startSession serializes overlapping open/new calls: the previous session is fully stopped before the next spawns, and the last request wins", async () => {

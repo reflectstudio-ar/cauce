@@ -21,6 +21,17 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
   return (
     <div className={`gc-message gc-message--${isUser ? "user" : "assistant"}${rich ? " gc-message--rich" : ""}`}>
+      {message.images && message.images.length > 0 && (
+        <div className="gc-message__images">
+          {message.images.map((image, index) => (
+            <img
+              key={`${index}-${image.mimeType}`}
+              src={`data:${image.mimeType};base64,${image.data}`}
+              alt={`Attachment ${index + 1}`}
+            />
+          ))}
+        </div>
+      )}
       {isUser ? (
         <p className="gc-message__text">{message.text}</p>
       ) : rich ? (

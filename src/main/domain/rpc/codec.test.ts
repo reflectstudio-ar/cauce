@@ -92,8 +92,21 @@ describe("decodeLine", () => {
     expect(decodeLine('{"type":1}')).toEqual({ kind: "unknown", raw: '{"type":1}' });
   });
 
+  it("decodes a queue_update and keeps only the string entries", () => {
+    expect(decodeLine('{"type":"queue_update","steering":["one"],"followUp":["two"]}')).toEqual({
+      type: "queue_update",
+      steering: ["one"],
+      followUp: ["two"],
+    });
+    expect(decodeLine('{"type":"queue_update","steering":["one",3],"followUp":null}')).toEqual({
+      type: "queue_update",
+      steering: ["one"],
+      followUp: [],
+    });
+  });
+
   it("is unknown for a syntactically valid but unmodeled event type", () => {
-    const line = '{"type":"queue_update","steering":[],"followUp":[]}';
+    const line = '{"type":"bash_execution_update","delta":"x"}';
     expect(decodeLine(line)).toEqual({ kind: "unknown", raw: line });
   });
 

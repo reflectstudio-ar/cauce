@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ChatState, ChatSummary, DialogAnswer } from "@shared/bridge-types";
 import { useBridge } from "@renderer/shared/bridge/useBridge";
 import { HelpersContainer } from "@renderer/features/helpers/HelpersContainer";
+import { readAttachments, type Attachment } from "./attachments";
 import { Composer } from "./components/Composer";
 import { CONVERSATION_PANE, ConversationHeader, type ConversationPane } from "./components/ConversationHeader";
 import { HelpersStrip } from "./components/HelpersStrip";
@@ -48,6 +49,8 @@ export function ConversationContainer({ activeChat }: ConversationContainerProps
   const [chatState, setChatState] = useState<ChatState>(emptyChatState());
   const [bridgeError, setBridgeError] = useState<string | undefined>(undefined);
   const [draft, setDraft] = useState("");
+  const [attachments, setAttachments] = useState<readonly Attachment[]>([]);
+  const [notice, setNotice] = useState<string | undefined>(undefined);
   const [pane, setPane] = useState<ConversationPane>(CONVERSATION_PANE.CHAT);
   // The moment this chat became active — HelpersContainer's line between
   // "current" helpers and the collapsed "Earlier" group (format.ts's
@@ -76,6 +79,8 @@ export function ConversationContainer({ activeChat }: ConversationContainerProps
   useEffect(() => {
     setPane(CONVERSATION_PANE.CHAT);
     setHelpersOpenedAt(new Date().toISOString());
+    setAttachments([]);
+    setNotice(undefined);
   }, [activeChat]);
 
   useEffect(() => {
@@ -94,21 +99,59 @@ export function ConversationContainer({ activeChat }: ConversationContainerProps
     };
   }, [bridge, activeChat]);
 
-  const handleSend = (): void => {
+  const sendWithAttachments = (send: typeof bridge.sendMessage): void => {
     const text = draft.trim();
-    if (text.length === 0 || chatState.working) return;
+    if (text.length === 0 && attachments.length === 0) return;
+
+    // Images-only messages still need a prompt string for the model.
+    const message = text.length > 0 ? text : "Look at the attached image.";
+    const images = attachments.map((attachment) => attachment.image);
 
     setDraft("");
-    bridge
-      .sendMessage(text)
+    setAttachments([]);
+    setNotice(undefined);
+    send(message, images)
       .then((result) => {
-        if (!result.queued) setBridgeError(result.reason ?? "Gentle did not send the message");
+        if (!result.queued) setNotice(result.reason ?? "Gentle did not accept the message");
       })
-      .catch((cause: unknown) => setBridgeError(errorText(cause)));
+      .catch((cause: unknown) => setNotice(errorText(cause)));
   };
 
+  const handleSend = (): void => sendWithAttachments(bridge.sendMessage);
+  const handleFollowUp = (): void => sendWithAttachments(bridge.followUp);
+
+  const handleAttach = (files: FileList | null): void => {
+    if (!files || files.length === 0) return;
+    setNotice(undefined);
+    void readAttachments(Array.from(files), attachments.length)
+      .then((result) => {
+        if ("error" in result) {
+          setNotice(result.error);
+          return;
+        }
+        setAttachments((current) => [...current, ...result.attachments]);
+      })
+      .catch((cause: unknown) => setNotice(errorText(cause)));
+  };
+
+  const handleRemoveAttachment = (id: string): void => {
+    setAttachments((current) => current.filter((attachment) => attachment.id !== id));
+  };
+
+  // Stopping while messages are queued gives them back to the draft instead
+  // of silently discarding what the person typed (pi's documented Esc flow:
+  // clear_queue, then abort).
   const handleAbort = (): void => {
-    bridge.abort().catch((cause: unknown) => setBridgeError(errorText(cause)));
+    bridge
+      .clearQueue()
+      .then((queue) => {
+        const restored = [...queue.steering, ...queue.followUp].join("\n\n");
+        if (restored.length > 0) setDraft((current) => (current.length > 0 ? current : restored));
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        bridge.abort().catch((cause: unknown) => setBridgeError(errorText(cause)));
+      });
   };
 
   const handleAnswerDialog = (id: string, answer: DialogAnswer): void => {
@@ -117,6 +160,7 @@ export function ConversationContainer({ activeChat }: ConversationContainerProps
 
   const title = activeChat.kind === "existing" ? activeChat.chat.title : "New chat";
   const error = bridgeError ?? chatState.lastError;
+  const queued = [...(chatState.queue?.steering ?? []), ...(chatState.queue?.followUp ?? [])];
 
   return (
     <section className="gc-conversation">
@@ -138,7 +182,19 @@ export function ConversationContainer({ activeChat }: ConversationContainerProps
         <>
           <HelpersStrip helpers={chatState.helpers} onOpen={() => setPane(CONVERSATION_PANE.HELPERS)} />
           <MessageThread messages={chatState.messages} dialogs={chatState.pendingDialogs} onAnswerDialog={handleAnswerDialog} />
-          <Composer value={draft} working={chatState.working} onChange={setDraft} onSend={handleSend} onAbort={handleAbort} />
+          <Composer
+            value={draft}
+            working={chatState.working}
+            attachments={attachments}
+            queued={queued}
+            notice={notice}
+            onChange={setDraft}
+            onAttach={handleAttach}
+            onRemoveAttachment={handleRemoveAttachment}
+            onSend={handleSend}
+            onFollowUp={handleFollowUp}
+            onAbort={handleAbort}
+          />
         </>
       )}
     </section>

@@ -60,6 +60,10 @@ function asNumber(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
 }
 
+function toStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
 /**
  * Decodes one JSONL line into a typed RpcEvent, or `{ kind: "unknown" }`
  * for a blank line, malformed JSON, or a syntactically valid event this
@@ -97,6 +101,12 @@ function toRpcEvent(parsed: Record<string, unknown>): RpcEvent | undefined {
       return toMessageEvent(parsed.type, parsed.message);
     case "message_update":
       return toMessageUpdateEvent(parsed.assistantMessageEvent);
+    case "queue_update":
+      return {
+        type: "queue_update",
+        steering: toStringArray(parsed.steering),
+        followUp: toStringArray(parsed.followUp),
+      };
     case "tool_execution_start":
       return typeof parsed.toolCallId === "string" && typeof parsed.toolName === "string"
         ? { type: "tool_execution_start", toolCallId: parsed.toolCallId, toolName: parsed.toolName, args: parsed.args }

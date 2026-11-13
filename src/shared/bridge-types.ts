@@ -80,6 +80,21 @@ export interface MessageToolBlock {
  */
 export type MessageBlock = MessageTextBlock | MessageThinkingBlock | MessageToolBlock;
 
+/** An image attached to a prompt, in pi's `ImageContent` shape: base64
+ * data plus its media type. */
+export interface PromptImage {
+  readonly type: "image";
+  readonly data: string;
+  readonly mimeType: string;
+}
+
+/** Messages a running agent has accepted but not consumed yet, as pi
+ * reports them on `queue_update`. */
+export interface QueueState {
+  readonly steering: readonly string[];
+  readonly followUp: readonly string[];
+}
+
 export interface ChatMessage {
   readonly id: string;
   readonly role: MessageRole;
@@ -87,6 +102,8 @@ export interface ChatMessage {
   /** Rich content, present only when the message has thinking or tool
    * blocks; `text` stays the joined text either way. */
   readonly blocks?: readonly MessageBlock[];
+  /** Images the user attached to this message (user messages only). */
+  readonly images?: readonly PromptImage[];
   /**
    * True while an assistant message is still streaming (between
    * message_start and message_end on the pi RPC wire). Optional so T1-era
@@ -172,6 +189,8 @@ export interface ChatState {
   readonly lastError?: string;
   readonly activity: number;
   readonly helpers: HelpersActivity;
+  /** Steering and follow-up messages waiting for the running agent. */
+  readonly queue?: QueueState;
 }
 
 export const HELPER_STATUS = {
@@ -322,10 +341,15 @@ export interface GentleBridge {
   openChat(id: string): Promise<ChatState>;
   /** Starts a fresh chat (no prior session file) and returns its initial ChatState. */
   newChat(): Promise<ChatState>;
-  /** Sends a message in whichever chat is currently open. Resolves with
-   * `{ queued: false, reason }` instead of rejecting when the assistant is
-   * already working, so the caller reports it exactly once. */
-  sendMessage(text: string): Promise<PromptResult>;
+  /** Sends a message in whichever chat is currently open. While the agent
+   * is working the message is queued as steering (delivered after the
+   * current turn's tool calls) instead of being declined. */
+  sendMessage(text: string, images?: readonly PromptImage[]): Promise<PromptResult>;
+  /** Queues a message to be delivered only once the agent finishes. */
+  followUp(text: string, images?: readonly PromptImage[]): Promise<PromptResult>;
+  /** Drops queued steering/follow-up messages and returns what was queued,
+   * so the composer can restore the text. */
+  clearQueue(): Promise<QueueState>;
   abort(): Promise<void>;
   answerDialog(id: string, answer: DialogAnswer): Promise<void>;
   /** Subscribes to ChatState pushes for the currently open chat. Returns an unsubscribe function. */

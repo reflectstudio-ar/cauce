@@ -62,7 +62,7 @@ describe("createBridge", () => {
 
     await bridge.sendMessage("hello");
 
-    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.SEND_MESSAGE, "hello");
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.SEND_MESSAGE, "hello", undefined);
   });
 
   it("abort invokes chat.abort with no payload", async () => {

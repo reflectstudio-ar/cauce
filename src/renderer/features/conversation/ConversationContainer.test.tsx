@@ -27,6 +27,8 @@ function makeBridge(overrides: Partial<GentleBridge> = {}): GentleBridge {
     openChat: vi.fn().mockResolvedValue(emptyState()),
     newChat: vi.fn().mockResolvedValue(emptyState()),
     sendMessage: vi.fn().mockResolvedValue({ queued: true }),
+    followUp: vi.fn().mockResolvedValue({ queued: true }),
+    clearQueue: vi.fn().mockResolvedValue({ steering: [], followUp: [] }),
     abort: vi.fn().mockResolvedValue(undefined),
     answerDialog: vi.fn().mockResolvedValue(undefined),
     onState: vi.fn().mockReturnValue(() => {}),
@@ -106,7 +108,7 @@ describe("ConversationContainer", () => {
     fireEvent.change(screen.getByPlaceholderText("Tell Gentle what you need…"), { target: { value: "  hi Gentle  " } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
-    expect(bridge.sendMessage).toHaveBeenCalledWith("hi Gentle");
+    expect(bridge.sendMessage).toHaveBeenCalledWith("hi Gentle", []);
   });
 
   it("shows an onError push in the status line without adding a message", async () => {
@@ -187,11 +189,60 @@ describe("ConversationContainer", () => {
 
     pushState({ messages: [], working: true, pendingDialogs: [], activity: 0, helpers: EMPTY_HELPERS });
 
-    const textarea = screen.getByPlaceholderText("Tell Gentle what you need…");
-    await vi.waitFor(() => expect(textarea).toHaveAttribute("readonly"));
+    const textarea = await screen.findByPlaceholderText("Steer the agent while it works…");
     fireEvent.keyDown(textarea, { key: "Escape" });
 
-    expect(bridge.abort).toHaveBeenCalled();
+    // Esc clears the queue first, then aborts (pi's documented flow).
+    expect(bridge.clearQueue).toHaveBeenCalled();
+    await vi.waitFor(() => expect(bridge.abort).toHaveBeenCalled());
+  });
+
+  it("sends attached images along with the message", async () => {
+    const bridge = makeBridge();
+    window.gentle = bridge;
+    render(<ConversationContainer activeChat={NEW_CHAT} />);
+    await vi.waitFor(() => expect(bridge.newChat).toHaveBeenCalled());
+
+    const file = new File([new Uint8Array([1, 2, 3])], "shot.png", { type: "image/png" });
+    fireEvent.change(screen.getByLabelText("Attach images"), { target: { files: [file] } });
+    await screen.findByAltText("shot.png");
+
+    fireEvent.change(screen.getByPlaceholderText("Tell Gentle what you need…"), { target: { value: "look" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await vi.waitFor(() =>
+      expect(bridge.sendMessage).toHaveBeenCalledWith(
+        "look",
+        [expect.objectContaining({ type: "image", mimeType: "image/png" })],
+      ),
+    );
+    // The attachment strip clears after sending.
+    await vi.waitFor(() => expect(screen.queryByAltText("shot.png")).toBeNull());
+  });
+
+  it("restores queued steering text into the draft when stopping", async () => {
+    const clearQueue = vi.fn().mockResolvedValue({ steering: ["queued text"], followUp: [] });
+    let pushState: (state: ChatState) => void = () => {};
+    const bridge = makeBridge({
+      clearQueue,
+      onState: vi.fn((callback: (state: ChatState) => void) => {
+        pushState = callback;
+        return () => {};
+      }),
+    });
+    window.gentle = bridge;
+
+    render(<ConversationContainer activeChat={NEW_CHAT} />);
+    await vi.waitFor(() => expect(bridge.newChat).toHaveBeenCalled());
+
+    pushState({ messages: [], working: true, pendingDialogs: [], activity: 0, helpers: EMPTY_HELPERS });
+    const textarea = await screen.findByPlaceholderText("Steer the agent while it works…");
+    fireEvent.keyDown(textarea, { key: "Escape" });
+
+    await vi.waitFor(() => expect(clearQueue).toHaveBeenCalled());
+    await vi.waitFor(() =>
+      expect(screen.getByPlaceholderText("Steer the agent while it works…")).toHaveValue("queued text"),
+    );
   });
 
   it("guards the open/new effect against a stale resolution when the selection changes before it settles", async () => {

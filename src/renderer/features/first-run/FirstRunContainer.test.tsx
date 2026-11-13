@@ -13,6 +13,8 @@ function makeBridge(overrides: Partial<GentleBridge> = {}): GentleBridge {
     openChat: vi.fn(),
     newChat: vi.fn(),
     sendMessage: vi.fn(),
+    followUp: vi.fn(),
+    clearQueue: vi.fn(),
     abort: vi.fn(),
     answerDialog: vi.fn(),
     onState: vi.fn().mockReturnValue(() => {}),

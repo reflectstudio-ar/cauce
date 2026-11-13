@@ -94,14 +94,15 @@ describe("mockBridge", () => {
     expect(final?.working).toBe(false);
   });
 
-  it('resolves { queued: false, reason } instead of notifying onError while already working (report once)', async () => {
-    const { errors } = collectStates();
+  it("queues a second message as steering instead of declining it while working", async () => {
+    const { errors, states } = collectStates();
 
     await mockBridge.sendMessage("Which branch?"); // opens a dialog, leaves working: true
     const result = await mockBridge.sendMessage("another message");
 
-    expect(result).toEqual({ queued: false, reason: "Gentle is still working" });
+    expect(result).toEqual({ queued: true });
     expect(errors).toHaveLength(0);
+    expect(states.at(-1)?.queue?.steering).toEqual(["another message"]);
   });
 
   it("streams a plain reply word by word for an ordinary message", async () => {

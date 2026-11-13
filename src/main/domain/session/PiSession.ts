@@ -1,4 +1,12 @@
-import { MESSAGE_ROLE, type ChatMessage, type ChatState, type DialogAnswer, type PromptResult } from "@shared/bridge-types";
+import {
+  MESSAGE_ROLE,
+  type ChatMessage,
+  type ChatState,
+  type DialogAnswer,
+  type PromptImage,
+  type PromptResult,
+  type QueueState,
+} from "@shared/bridge-types";
 import { INITIAL_CHAT_STATE, reduceChat } from "../rpc/chatReducer";
 import { decodeLine, encodeCommand } from "../rpc/codec";
 import { extractHistoryMessages, historyToMessages } from "../rpc/history";
@@ -56,6 +64,9 @@ class TypedEmitter<Events> {
 
 const STOP_GRACE_PERIOD_MS = 3000;
 
+/** How long `clearQueue` waits for its response before resolving empty. */
+const CLEAR_QUEUE_TIMEOUT_MS = 1500;
+
 /**
  * Set on every spawned pi process (M2 prerequisite, see
  * odd/tasks/desktop-m2-helpers.md): only with this flag does gentle-pi
@@ -98,6 +109,8 @@ export class PiSession extends TypedEmitter<PiSessionEventMap> {
    * and ignore anything else that happens to carry `command: "get_messages"`
    * (a stale or unrelated response). */
   private pendingHistoryRequestId: string | undefined;
+  private clearQueueCounter = 0;
+  private pendingClearQueue: { id: string; resolve: (queue: QueueState) => void } | undefined;
 
   constructor(options: PiSessionOptions) {
     super();
@@ -160,29 +173,49 @@ export class PiSession extends TypedEmitter<PiSessionEventMap> {
   }
 
   /**
-   * Sends `prompt` and appends the user's message to state immediately (no
-   * round trip needed to show it). M1 keeps this simple with no queue: a
-   * prompt sent while the assistant is still working is rejected outright
-   * (no message appended, nothing written to stdin) instead of buffered.
+   * Sends a prompt. While the agent is already working the message is
+   * queued as steering (pi's `steer` command) instead of being declined:
+   * steering is delivered after the current turn's tool calls, before the
+   * next model call, which is what a person typing mid-run expects. Images
+   * ride along with either command.
    */
-  prompt(text: string): PromptResult {
+  prompt(text: string, images: readonly PromptImage[] = []): PromptResult {
     if (this.state.working) {
-      // Declined, not a failure: report once via the return value (and the
-      // state push below, for anyone reading ChatState.lastError directly)
-      // rather than also emitting an "error" event — ChatHost.sendMessage
-      // (T5) resolves this PromptResult straight to the renderer instead
-      // of rejecting, so a second report through onError would duplicate
-      // the same message.
-      const reason = "Gentle is still working";
-      this.state = { ...this.state, lastError: reason };
-      this.emit("state", this.state);
-      return { queued: false, reason };
+      this.send({ type: "steer", message: text, ...(images.length > 0 ? { images } : {}) });
+      return { queued: true };
     }
 
-    this.state = appendUserMessage(this.state, text);
+    this.state = appendUserMessage(this.state, text, images);
     this.emit("state", this.state);
-    this.send({ type: "prompt", message: text });
+    this.send({ type: "prompt", message: text, ...(images.length > 0 ? { images } : {}) });
     return { queued: true };
+  }
+
+  /** Queues a message that is delivered only once the agent finishes. */
+  followUp(text: string, images: readonly PromptImage[] = []): PromptResult {
+    this.send({ type: "follow_up", message: text, ...(images.length > 0 ? { images } : {}) });
+    return { queued: true };
+  }
+
+  /**
+   * Drops queued steering/follow-up messages and resolves with the texts
+   * pi had queued, so the composer can put them back in the draft. Bounded
+   * by CLEAR_QUEUE_TIMEOUT_MS: a missing response never strands the caller.
+   */
+  clearQueue(): Promise<QueueState> {
+    const empty: QueueState = { steering: [], followUp: [] };
+    if (!this.process || this.stopping) return Promise.resolve(empty);
+
+    const id = `clear-${this.clearQueueCounter++}`;
+    return new Promise((resolve) => {
+      this.pendingClearQueue = { id, resolve };
+      this.send({ type: "clear_queue", id });
+      setTimeout(() => {
+        if (this.pendingClearQueue?.id !== id) return;
+        this.pendingClearQueue = undefined;
+        resolve(empty);
+      }, CLEAR_QUEUE_TIMEOUT_MS);
+    });
   }
 
   abort(): void {
@@ -254,7 +287,14 @@ export class PiSession extends TypedEmitter<PiSessionEventMap> {
       // reduceChat has no case for "response" (its default arm returns
       // state unchanged), so folding the get_messages history response in
       // here, right after, never fights it.
-      if (decoded.type === "response") this.state = this.applyHistoryResponse(this.state, decoded);
+      if (decoded.type === "response") {
+        this.state = this.applyHistoryResponse(this.state, decoded);
+        // A successful clear leaves both queues empty; the returned texts go
+        // to the caller's promise, not back into state.
+        if (this.applyClearQueueResponse(decoded)) {
+          this.state = { ...this.state, queue: { steering: [], followUp: [] } };
+        }
+      }
       this.emit("event", decoded);
       this.emit("state", this.state);
     } catch (error) {
@@ -281,6 +321,22 @@ export class PiSession extends TypedEmitter<PiSessionEventMap> {
     if (state.messages.length > 0) return state;
 
     return { ...state, messages: historyToMessages(extractHistoryMessages(response.data)) };
+  }
+
+  /**
+   * Resolves a pending `clearQueue` promise when its response arrives and
+   * returns the queue to store (empty after a successful clear). A response
+   * with any other command, a mismatched id, or no outstanding request is
+   * ignored.
+   */
+  private applyClearQueueResponse(response: RpcResponse): QueueState | undefined {
+    const pending = this.pendingClearQueue;
+    if (!pending || response.command !== "clear_queue" || response.id !== pending.id) return undefined;
+
+    this.pendingClearQueue = undefined;
+    const queue = response.success ? parseQueueState(response.data) : { steering: [], followUp: [] };
+    pending.resolve(queue);
+    return queue;
   }
 
   /**
@@ -330,9 +386,24 @@ export class PiSession extends TypedEmitter<PiSessionEventMap> {
   }
 }
 
-function appendUserMessage(state: ChatState, text: string): ChatState {
-  const message: ChatMessage = { id: `msg-${state.messages.length}`, role: MESSAGE_ROLE.USER, text };
+function appendUserMessage(state: ChatState, text: string, images: readonly PromptImage[] = []): ChatState {
+  const message: ChatMessage = {
+    id: `msg-${state.messages.length}`,
+    role: MESSAGE_ROLE.USER,
+    text,
+    ...(images.length > 0 ? { images } : {}),
+  };
   return { ...state, messages: [...state.messages, message] };
+}
+
+/** Reads a `clear_queue` response's `{steering, followUp}` data defensively. */
+function parseQueueState(data: unknown): QueueState {
+  const value = typeof data === "object" && data !== null && !Array.isArray(data) ? (data as Record<string, unknown>) : {};
+  return { steering: toStringArray(value.steering), followUp: toStringArray(value.followUp) };
+}
+
+function toStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
 function toError(value: unknown): Error {

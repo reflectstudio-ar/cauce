@@ -10,6 +10,8 @@ export const IPC_CHANNELS = {
   OPEN_CHAT: "chat.open",
   NEW_CHAT: "chat.new",
   SEND_MESSAGE: "chat.send",
+  FOLLOW_UP: "chat.followUp",
+  CLEAR_QUEUE: "chat.clearQueue",
   ABORT: "chat.abort",
   ANSWER_DIALOG: "dialog.answer",
   /** webContents.send push: the current chat's ChatState changed. */

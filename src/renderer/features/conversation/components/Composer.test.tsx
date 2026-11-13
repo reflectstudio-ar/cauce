@@ -1,79 +1,133 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { Composer } from "./Composer";
+import { Composer, type ComposerProps } from "./Composer";
+
+const ATTACHMENT = {
+  id: "a1",
+  name: "screenshot.png",
+  image: { type: "image" as const, data: "aGVsbG8=", mimeType: "image/png" },
+};
+
+function renderComposer(overrides: Partial<ComposerProps> = {}) {
+  const props: ComposerProps = {
+    value: "",
+    working: false,
+    attachments: [],
+    queued: [],
+    onChange: vi.fn(),
+    onAttach: vi.fn(),
+    onRemoveAttachment: vi.fn(),
+    onSend: vi.fn(),
+    onFollowUp: vi.fn(),
+    onAbort: vi.fn(),
+    ...overrides,
+  };
+  return { props, ...render(<Composer {...props} />) };
+}
 
 describe("Composer", () => {
-  it("shows the placeholder and the key hints", () => {
-    render(<Composer value="" working={false} onChange={vi.fn()} onSend={vi.fn()} onAbort={vi.fn()} />);
+  it("shows the idle placeholder and the key hints", () => {
+    renderComposer();
 
     expect(screen.getByPlaceholderText("Tell Gentle what you need…")).toBeInTheDocument();
     expect(screen.getByText("Enter to send · Shift+Enter for a new line · Esc to stop")).toBeInTheDocument();
   });
 
   it("calls onSend and does not insert a newline when Enter is pressed without Shift", () => {
-    const onSend = vi.fn();
+    const { props } = renderComposer({ value: "hello" });
 
-    render(<Composer value="hello" working={false} onChange={vi.fn()} onSend={onSend} onAbort={vi.fn()} />);
-    const textarea = screen.getByPlaceholderText("Tell Gentle what you need…");
-    fireEvent.keyDown(textarea, { key: "Enter" });
+    fireEvent.keyDown(screen.getByPlaceholderText("Tell Gentle what you need…"), { key: "Enter" });
 
-    expect(onSend).toHaveBeenCalled();
+    expect(props.onSend).toHaveBeenCalled();
   });
 
   it("does not call onSend when Shift+Enter is pressed (newline instead)", () => {
-    const onSend = vi.fn();
+    const { props } = renderComposer({ value: "hello" });
 
-    render(<Composer value="hello" working={false} onChange={vi.fn()} onSend={onSend} onAbort={vi.fn()} />);
     fireEvent.keyDown(screen.getByPlaceholderText("Tell Gentle what you need…"), { key: "Enter", shiftKey: true });
 
-    expect(onSend).not.toHaveBeenCalled();
+    expect(props.onSend).not.toHaveBeenCalled();
   });
 
-  it("does not call onSend on Enter when the draft is empty", () => {
-    const onSend = vi.fn();
+  it("does not call onSend on Enter when the draft is empty and nothing is attached", () => {
+    const { props } = renderComposer({ value: "   " });
 
-    render(<Composer value="   " working={false} onChange={vi.fn()} onSend={onSend} onAbort={vi.fn()} />);
     fireEvent.keyDown(screen.getByPlaceholderText("Tell Gentle what you need…"), { key: "Enter" });
 
-    expect(onSend).not.toHaveBeenCalled();
+    expect(props.onSend).not.toHaveBeenCalled();
   });
 
   it("calls onAbort on Escape only while working", () => {
-    const onAbort = vi.fn();
-    const { rerender } = render(
-      <Composer value="" working={false} onChange={vi.fn()} onSend={vi.fn()} onAbort={onAbort} />,
-    );
-    const textarea = screen.getByPlaceholderText("Tell Gentle what you need…");
+    const { props, rerender } = renderComposer();
 
-    fireEvent.keyDown(textarea, { key: "Escape" });
-    expect(onAbort).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByPlaceholderText("Tell Gentle what you need…"), { key: "Escape" });
+    expect(props.onAbort).not.toHaveBeenCalled();
 
-    rerender(<Composer value="" working onChange={vi.fn()} onSend={vi.fn()} onAbort={onAbort} />);
-    fireEvent.keyDown(textarea, { key: "Escape" });
-    expect(onAbort).toHaveBeenCalled();
+    rerender(<Composer {...props} working />);
+    fireEvent.keyDown(screen.getByPlaceholderText("Steer the agent while it works…"), { key: "Escape" });
+    expect(props.onAbort).toHaveBeenCalled();
   });
 
-  it("marks the field read-only while working so Escape still reaches it, and disables Send", () => {
-    render(<Composer value="hi" working onChange={vi.fn()} onSend={vi.fn()} onAbort={vi.fn()} />);
+  it("stays editable while working and turns the primary button into Steer", () => {
+    renderComposer({ value: "hi", working: true });
 
-    const textarea = screen.getByPlaceholderText("Tell Gentle what you need…");
-    expect(textarea).toHaveAttribute("readonly");
-    expect(textarea).not.toBeDisabled();
-    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    const textarea = screen.getByPlaceholderText("Steer the agent while it works…");
+    expect(textarea).not.toHaveAttribute("readonly");
+    expect(screen.getByRole("button", { name: "Steer" })).toBeEnabled();
+    expect(screen.getByText("Enter to steer · Follow-up queues after it finishes · Esc to stop")).toBeInTheDocument();
+  });
+
+  it("queues a follow-up from the secondary button", () => {
+    const { props } = renderComposer({ value: "then summarize", working: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "Follow-up" }));
+
+    expect(props.onFollowUp).toHaveBeenCalled();
   });
 
   it("disables Send when the draft is empty", () => {
-    render(<Composer value="" working={false} onChange={vi.fn()} onSend={vi.fn()} onAbort={vi.fn()} />);
+    renderComposer();
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
   });
 
+  it("enables Send when only an image is attached", () => {
+    renderComposer({ attachments: [ATTACHMENT] });
+    expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
+  });
+
   it("clicking Send calls onSend", () => {
-    const onSend = vi.fn();
-    render(<Composer value="hi" working={false} onChange={vi.fn()} onSend={onSend} onAbort={vi.fn()} />);
+    const { props } = renderComposer({ value: "hi" });
 
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
-    expect(onSend).toHaveBeenCalled();
+    expect(props.onSend).toHaveBeenCalled();
+  });
+
+  it("shows attached images with a remove button", () => {
+    const { props } = renderComposer({ attachments: [ATTACHMENT] });
+
+    expect(screen.getByAltText("screenshot.png")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove screenshot.png" }));
+
+    expect(props.onRemoveAttachment).toHaveBeenCalledWith("a1");
+  });
+
+  it("hands picked files to onAttach and clears the input", () => {
+    const { props, container } = renderComposer();
+    const input = screen.getByLabelText("Attach images") as HTMLInputElement;
+    const file = new File(["x"], "photo.png", { type: "image/png" });
+
+    fireEvent.change(input, { target: { files: [file] } });
+
+    expect(props.onAttach).toHaveBeenCalled();
+    expect(input.value).toBe("");
+    expect(container.querySelector(".gc-composer__file-input")).not.toBeNull();
+  });
+
+  it("lists queued messages while the agent works", () => {
+    renderComposer({ working: true, queued: ["also check the tests"] });
+
+    expect(screen.getByLabelText("Queued messages")).toHaveTextContent("also check the tests");
   });
 });

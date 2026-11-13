@@ -1,4 +1,14 @@
-import type { ChatState, ChatSummary, DialogAnswer, GentleBridge, HomeMode, PromptResult, SetupStatus } from "@shared/bridge-types";
+import type {
+  ChatState,
+  ChatSummary,
+  DialogAnswer,
+  GentleBridge,
+  HomeMode,
+  PromptImage,
+  PromptResult,
+  QueueState,
+  SetupStatus,
+} from "@shared/bridge-types";
 import { IPC_CHANNELS } from "@shared/ipc-channels";
 
 /**
@@ -21,7 +31,11 @@ export function createBridge(ipc: RendererIpc): GentleBridge {
     listChats: () => ipc.invoke(IPC_CHANNELS.LIST_CHATS) as Promise<ChatSummary[]>,
     openChat: (id: string) => ipc.invoke(IPC_CHANNELS.OPEN_CHAT, id) as Promise<ChatState>,
     newChat: () => ipc.invoke(IPC_CHANNELS.NEW_CHAT) as Promise<ChatState>,
-    sendMessage: (text: string) => ipc.invoke(IPC_CHANNELS.SEND_MESSAGE, text) as Promise<PromptResult>,
+    sendMessage: (text: string, images?: readonly PromptImage[]) =>
+      ipc.invoke(IPC_CHANNELS.SEND_MESSAGE, text, images) as Promise<PromptResult>,
+    followUp: (text: string, images?: readonly PromptImage[]) =>
+      ipc.invoke(IPC_CHANNELS.FOLLOW_UP, text, images) as Promise<PromptResult>,
+    clearQueue: () => ipc.invoke(IPC_CHANNELS.CLEAR_QUEUE) as Promise<QueueState>,
     abort: () => ipc.invoke(IPC_CHANNELS.ABORT) as Promise<void>,
     answerDialog: (id: string, answer: DialogAnswer) =>
       ipc.invoke(IPC_CHANNELS.ANSWER_DIALOG, id, answer) as Promise<void>,

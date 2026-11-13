@@ -22,6 +22,8 @@ describe("useBridge", () => {
       openChat: vi.fn(),
       newChat: vi.fn(),
       sendMessage: vi.fn(),
+      followUp: vi.fn(),
+      clearQueue: vi.fn(),
       abort: vi.fn(),
       answerDialog: vi.fn(),
       onState: vi.fn(),
