@@ -21,6 +21,7 @@ import {
   type PromptResult,
   type QueueState,
   type SetupStatus,
+  type ModelInfo,
   TOOL_STATUS,
 } from "@shared/bridge-types";
 
@@ -467,9 +468,25 @@ function startHelpersScenario(): void {
   void runHelpersScenario(token);
 }
 
+/** Mutable copy so rename/delete behave like the real store in the preview. */
+let mockChats: ChatSummary[] = [...EXAMPLE_CHATS];
+
+const MOCK_MODELS: ModelInfo[] = [
+  { id: "deepseek-flash", name: "DeepSeek V4.1 Flash", provider: "deepseek", contextWindow: 1_000_000 },
+  { id: "claude-sonnet-5", name: "Claude Sonnet 5", provider: "anthropic", contextWindow: 200_000 },
+];
+
 export const mockBridge: GentleBridge = {
   async listChats(): Promise<ChatSummary[]> {
-    return EXAMPLE_CHATS;
+    return mockChats;
+  },
+
+  async renameChat(id: string, name: string): Promise<void> {
+    mockChats = mockChats.map((chat) => (chat.id === id ? { ...chat, title: name } : chat));
+  },
+
+  async deleteChat(id: string): Promise<void> {
+    mockChats = mockChats.filter((chat) => chat.id !== id);
   },
 
   async openChat(id: string): Promise<ChatState> {
@@ -526,6 +543,39 @@ export const mockBridge: GentleBridge = {
     const queue = currentState.queue ?? { steering: [], followUp: [] };
     setState({ ...currentState, queue: { steering: [], followUp: [] } });
     return queue;
+  },
+
+  async listModels(): Promise<ModelInfo[]> {
+    return MOCK_MODELS;
+  },
+
+  async setModel(_provider: string, modelId: string): Promise<ModelInfo | undefined> {
+    const model = MOCK_MODELS.find((candidate) => candidate.id === modelId);
+    if (model) setState({ ...currentState, model });
+    return model;
+  },
+
+  async listThinkingLevels(): Promise<string[]> {
+    return ["off", "low", "medium", "high"];
+  },
+
+  async setThinkingLevel(level: string): Promise<void> {
+    setState({ ...currentState, thinkingLevel: level });
+  },
+
+  async refreshStats(): Promise<void> {
+    setState({
+      ...currentState,
+      context: { tokens: 24_000, contextWindow: 200_000, percent: 12 },
+    });
+  },
+
+  async refreshSessionInfo(): Promise<void> {
+    setState({
+      ...currentState,
+      model: currentState.model ?? MOCK_MODELS[0],
+      thinkingLevel: currentState.thinkingLevel ?? "medium",
+    });
   },
 
   async abort(): Promise<void> {

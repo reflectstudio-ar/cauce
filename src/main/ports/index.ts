@@ -72,6 +72,12 @@ export interface SessionInfoLike {
 
 export interface SessionStore {
   listAll(): Promise<SessionInfoLike[]>;
+  /** Sets a session's display name by appending pi's own `session_info`
+   * entry, exactly like `/name` does (works for a closed session too). */
+  rename(path: string, name: string): Promise<void>;
+  /** Removes the session file, preferring the OS trash over a permanent
+   * delete when a `trash` CLI is available. */
+  remove(path: string): Promise<void>;
 }
 
 /**

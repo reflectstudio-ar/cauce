@@ -107,6 +107,8 @@ function toRpcEvent(parsed: Record<string, unknown>): RpcEvent | undefined {
         steering: toStringArray(parsed.steering),
         followUp: toStringArray(parsed.followUp),
       };
+    case "thinking_level_changed":
+      return typeof parsed.level === "string" ? { type: "thinking_level_changed", level: parsed.level } : undefined;
     case "tool_execution_start":
       return typeof parsed.toolCallId === "string" && typeof parsed.toolName === "string"
         ? { type: "tool_execution_start", toolCallId: parsed.toolCallId, toolName: parsed.toolName, args: parsed.args }

@@ -18,16 +18,42 @@
   white-space: nowrap;
 }
 
+.gc-conversation-header__controls {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 .gc-conversation-header__tabs {
   display: inline-flex;
   align-items: center;
   gap: 0.2rem;
-  margin-left: auto;
   padding: 0.2rem;
   border-radius: 999px;
   background: var(--raised);
   border: 1px solid var(--line);
   flex-shrink: 0;
+}
+
+.gc-conversation-header__select {
+  width: auto;
+  max-width: 12rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--raised);
+  color: var(--text-2);
+  font-size: 0.75rem;
+}
+
+.gc-conversation-header__context {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  white-space: nowrap;
+  cursor: default;
 }
 
 .gc-conversation-header__tab {

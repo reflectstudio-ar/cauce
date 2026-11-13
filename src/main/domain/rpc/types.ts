@@ -40,6 +40,13 @@ export type RpcCommand =
   | { readonly type: "steer"; readonly message: string; readonly images?: readonly RpcImage[] }
   | { readonly type: "follow_up"; readonly message: string; readonly images?: readonly RpcImage[] }
   | { readonly type: "clear_queue"; readonly id?: string }
+  | { readonly type: "set_session_name"; readonly name: string }
+  | { readonly type: "get_state"; readonly id?: string }
+  | { readonly type: "get_available_models"; readonly id?: string }
+  | { readonly type: "set_model"; readonly provider: string; readonly modelId: string; readonly id?: string }
+  | { readonly type: "get_available_thinking_levels"; readonly id?: string }
+  | { readonly type: "set_thinking_level"; readonly level: string; readonly id?: string }
+  | { readonly type: "get_session_stats"; readonly id?: string }
   | { readonly type: "abort" }
   | { readonly type: "new_session" }
   | { readonly type: "switch_session"; readonly sessionPath: string }
@@ -165,6 +172,7 @@ export type RpcEvent =
   | { readonly type: "message_update"; readonly assistantMessageEvent: AssistantMessageEvent }
   | { readonly type: "message_end"; readonly message: RpcMessage }
   | { readonly type: "queue_update"; readonly steering: readonly string[]; readonly followUp: readonly string[] }
+  | { readonly type: "thinking_level_changed"; readonly level: string }
   | { readonly type: "tool_execution_start"; readonly toolCallId: string; readonly toolName: string; readonly args?: unknown }
   | {
       readonly type: "tool_execution_update";

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -140,5 +140,56 @@ describe("createDynamicPiSessionStore", () => {
     currentHome = homeB;
     const after = await store.listAll();
     expect(after.map((session) => session.id)).toEqual(["sess-b"]);
+  });
+});
+
+describe("rename and remove", () => {
+  function writeOneSession(home: string): string {
+    const dir = path.join(home, "sessions", "--proj--");
+    mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, "sess-1.jsonl");
+    writeFileSync(
+      file,
+      [
+        JSON.stringify({ type: "session", version: 3, id: "sid", timestamp: "2026-11-13T10:00:00.000Z", cwd: "/proj" }),
+        JSON.stringify({
+          type: "message",
+          id: "e1",
+          parentId: null,
+          timestamp: "2026-11-13T10:00:01.000Z",
+          message: { role: "user", content: "hi", timestamp: 0 },
+        }),
+      ].join("\n") + "\n",
+    );
+    return file;
+  }
+
+  it("appends a session_info entry carrying the new name and the last entry as parent", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "pi-session-rename-"));
+    try {
+      const file = writeOneSession(home);
+
+      await createPiSessionStore(home).rename(file, "New name");
+
+      const lines = readFileSync(file, "utf8").trim().split("\n");
+      const entry = JSON.parse(lines.at(-1) ?? "{}");
+      expect(entry).toMatchObject({ type: "session_info", parentId: "e1", name: "New name" });
+      expect(typeof entry.id).toBe("string");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("removes the session file", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "pi-session-remove-"));
+    try {
+      const file = writeOneSession(home);
+
+      await createPiSessionStore(home).remove(file);
+
+      expect(existsSync(file)).toBe(false);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

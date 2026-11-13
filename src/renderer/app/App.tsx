@@ -76,6 +76,9 @@ export function App() {
       <ChatsContainer
         onSelectChat={handleSelectChat}
         onNewChat={handleNewChat}
+        onChatDeleted={(id) => {
+          if (activeChat.kind === "existing" && activeChat.chat.id === id) setActiveChat({ kind: "new" });
+        }}
         selectedChatId={activeChat.kind === "existing" ? activeChat.chat.id : undefined}
       />
       <ConversationContainer activeChat={activeChat} />

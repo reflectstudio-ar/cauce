@@ -78,7 +78,11 @@ function createFakeSpawner(): { spawner: ProcessSpawner; handles: FakeProcessHan
 const fakeLocator: LauncherLocator = { locate: () => ({ command: "fake-gentle-shell", args: [] }) };
 
 function fakeSessionStore(sessions: readonly SessionInfoLike[]): SessionStore {
-  return { listAll: () => Promise.resolve([...sessions]) };
+  return {
+    listAll: () => Promise.resolve([...sessions]),
+    rename: () => Promise.resolve(),
+    remove: () => Promise.resolve(),
+  };
 }
 
 function session(overrides: Partial<SessionInfoLike> = {}): SessionInfoLike {
@@ -370,5 +374,68 @@ describe("ChatHost", () => {
     // No live child remains: both sessions were told to stop (endStdin),
     // including the one the queued newChat produced.
     expect(events).toEqual(["spawn:0", "endStdin:0", "spawn:1", "endStdin:1"]);
+  });
+});
+
+describe("ChatHost: session management", () => {
+  const closedSession = session({ id: "sess-1", path: "/s/proj/sess-1.jsonl" });
+
+  it("renames a closed chat by appending to its file, not by spawning anything", async () => {
+    const renamed: Array<[string, string]> = [];
+    const store: SessionStore = {
+      listAll: async () => [closedSession],
+      rename: async (path, name) => {
+        renamed.push([path, name]);
+      },
+      remove: async () => {},
+    };
+    const { spawner } = createFakeSpawner();
+    const host = new ChatHost({ spawner, locator: fakeLocator, sessionStore: store, env: {} });
+
+    await host.renameChat("sess-1", "  Renamed  ");
+
+    expect(renamed).toEqual([["/s/proj/sess-1.jsonl", "Renamed"]]);
+  });
+
+  it("rejects an empty chat name", async () => {
+    const { spawner } = createFakeSpawner();
+    const host = new ChatHost({ spawner, locator: fakeLocator, sessionStore: fakeSessionStore([closedSession]), env: {} });
+
+    await expect(host.renameChat("sess-1", "   ")).rejects.toThrow("cannot be empty");
+  });
+
+  it("renames the open chat over RPC instead of touching its file", async () => {
+    const store: SessionStore = {
+      listAll: async () => [closedSession],
+      rename: async () => {
+        throw new Error("the file must not be touched for the open chat");
+      },
+      remove: async () => {},
+    };
+    const { spawner, handles } = createFakeSpawner();
+    const host = new ChatHost({ spawner, locator: fakeLocator, sessionStore: store, env: {} });
+
+    await host.openChat("sess-1");
+    await host.renameChat("sess-1", "Live name");
+
+    const writes = (handles[0]?.writes ?? []).map((line) => JSON.parse(line));
+    expect(writes).toContainEqual({ type: "set_session_name", name: "Live name" });
+  });
+
+  it("deletes a closed chat through the store", async () => {
+    const removed: string[] = [];
+    const store: SessionStore = {
+      listAll: async () => [closedSession],
+      rename: async () => {},
+      remove: async (path) => {
+        removed.push(path);
+      },
+    };
+    const { spawner } = createFakeSpawner();
+    const host = new ChatHost({ spawner, locator: fakeLocator, sessionStore: store, env: {} });
+
+    await host.deleteChat("sess-1");
+
+    expect(removed).toEqual(["/s/proj/sess-1.jsonl"]);
   });
 });

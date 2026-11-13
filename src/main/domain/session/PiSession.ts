@@ -2,7 +2,9 @@ import {
   MESSAGE_ROLE,
   type ChatMessage,
   type ChatState,
+  type ContextUsage,
   type DialogAnswer,
+  type ModelInfo,
   type PromptImage,
   type PromptResult,
   type QueueState,
@@ -111,6 +113,8 @@ export class PiSession extends TypedEmitter<PiSessionEventMap> {
   private pendingHistoryRequestId: string | undefined;
   private clearQueueCounter = 0;
   private pendingClearQueue: { id: string; resolve: (queue: QueueState) => void } | undefined;
+  private requestCounter = 0;
+  private pendingRequests = new Map<string, (response: RpcResponse) => void>();
 
   constructor(options: PiSessionOptions) {
     super();
@@ -218,8 +222,140 @@ export class PiSession extends TypedEmitter<PiSessionEventMap> {
     });
   }
 
-  abort(): void {
+  async abort(): Promise<void> {
     this.send({ type: "abort" });
+  }
+
+  /** Renames the live session through pi, which appends its own
+   * `session_info` entry so the new name survives a reload. */
+  setSessionName(name: string): void {
+    this.send({ type: "set_session_name", name });
+  }
+
+  // -------------------------------------------------------------------------
+  // Model, thinking level and context usage
+  // -------------------------------------------------------------------------
+
+  listModels(): Promise<ModelInfo[]> {
+    return this.requestWithFallback(
+      { type: "get_available_models" },
+      (response) => (response.success ? parseModels(response.data) : []),
+      [],
+    );
+  }
+
+  async setModel(provider: string, modelId: string): Promise<ModelInfo | undefined> {
+    const model = await this.requestWithFallback(
+      { type: "set_model", provider, modelId },
+      (response) => (response.success ? parseModel(asRecord(response.data)) : undefined),
+      undefined,
+    );
+    if (model) {
+      this.state = { ...this.state, model };
+      this.emit("state", this.state);
+    }
+    return model;
+  }
+
+  listThinkingLevels(): Promise<string[]> {
+    return this.requestWithFallback(
+      { type: "get_available_thinking_levels" },
+      (response) => (response.success ? parseLevels(response.data) : []),
+      [],
+    );
+  }
+
+  async setThinkingLevel(level: string): Promise<void> {
+    const applied = await this.requestWithFallback(
+      { type: "set_thinking_level", level },
+      (response) => (response.success ? level : undefined),
+      undefined,
+    );
+    if (applied) {
+      this.state = { ...this.state, thinkingLevel: applied };
+      this.emit("state", this.state);
+    }
+  }
+
+  /** Asks pi for current context usage and folds it into state. */
+  refreshStats(): Promise<void> {
+    return this.requestWithFallback(
+      { type: "get_session_stats" },
+      (response) => {
+        if (response.success) this.applyContextUsage(response.data);
+        return undefined;
+      },
+      undefined,
+    );
+  }
+
+  private applyContextUsage(data: unknown): void {
+    const usage = asRecord(asRecord(data)?.contextUsage);
+    if (!usage || typeof usage.contextWindow !== "number" || usage.contextWindow <= 0) return;
+
+    const context: ContextUsage = {
+      tokens: typeof usage.tokens === "number" ? usage.tokens : null,
+      contextWindow: usage.contextWindow,
+      percent: typeof usage.percent === "number" ? usage.percent : null,
+    };
+    this.state = { ...this.state, context };
+    this.emit("state", this.state);
+  }
+
+  /** Reads the session's current model and thinking level. The renderer
+   * calls this once a chat is open, so opening never writes on its own. */
+  refreshSessionInfo(): Promise<void> {
+    return this.requestWithFallback(
+      { type: "get_state" },
+      (response) => {
+        if (response.success) this.applySessionState(response.data);
+        return undefined;
+      },
+      undefined,
+    );
+  }
+
+  private applySessionState(data: unknown): void {
+    const record = asRecord(data);
+    if (!record) return;
+
+    const model = parseModel(record.model);
+    const thinkingLevel = typeof record.thinkingLevel === "string" ? record.thinkingLevel : undefined;
+    this.state = {
+      ...this.state,
+      ...(model ? { model } : {}),
+      ...(thinkingLevel ? { thinkingLevel } : {}),
+    };
+    this.emit("state", this.state);
+  }
+
+  /**
+   * Sends a command with a correlation id and resolves with `parse`'s result
+   * when the matching response arrives, or with `fallback` after a bound —
+   * a missing or slow response never strands a UI control.
+   */
+  private requestWithFallback<T>(
+    command: RpcCommand,
+    parse: (response: RpcResponse) => T,
+    fallback: T,
+    timeoutMs = 4000,
+  ): Promise<T> {
+    if (!this.process || this.stopping) return Promise.resolve(fallback);
+
+    const id = `req-${this.requestCounter++}`;
+    return new Promise<T>((resolve) => {
+      let settled = false;
+      const finish = (value: T): void => {
+        if (settled) return;
+        settled = true;
+        this.pendingRequests.delete(id);
+        resolve(value);
+      };
+
+      this.pendingRequests.set(id, (response) => finish(parse(response)));
+      this.send({ ...command, id } as RpcCommand);
+      setTimeout(() => finish(fallback), timeoutMs);
+    });
   }
 
   /** Answers a pending extension_ui_request dialog and drops it from `pendingDialogs`. */
@@ -280,6 +416,14 @@ export class PiSession extends TypedEmitter<PiSessionEventMap> {
       const decoded = decodeLine(line);
       if ("kind" in decoded) return; // unknown/unmodeled line: nothing to fold or emit
 
+      if (decoded.type === "response" && decoded.id) {
+        const handler = this.pendingRequests.get(decoded.id);
+        if (handler) {
+          this.pendingRequests.delete(decoded.id);
+          handler(decoded);
+        }
+      }
+
       // `now` feeds reduceChat's setWidget helpers-retention fallback
       // (endedAt for a task gentle-pi drops after it finishes); PiSession
       // is the impure boundary, reduceChat itself stays pure.
@@ -295,6 +439,8 @@ export class PiSession extends TypedEmitter<PiSessionEventMap> {
           this.state = { ...this.state, queue: { steering: [], followUp: [] } };
         }
       }
+      // Fresh context usage once a run is truly settled.
+      if (decoded.type === "agent_settled") void this.refreshStats();
       this.emit("event", decoded);
       this.emit("state", this.state);
     } catch (error) {
@@ -404,6 +550,41 @@ function parseQueueState(data: unknown): QueueState {
 
 function toStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+/** Reads pi's model object conservatively: only the fields the header uses. */
+function parseModel(value: unknown): ModelInfo | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+
+  const id = asString(record.id);
+  const name = asString(record.name);
+  const provider = asString(record.provider);
+  if (!id || !name || !provider) return undefined;
+
+  const contextWindow = typeof record.contextWindow === "number" ? record.contextWindow : undefined;
+  return { id, name, provider, ...(contextWindow ? { contextWindow } : {}) };
+}
+
+function parseModels(data: unknown): ModelInfo[] {
+  const models = asRecord(data)?.models;
+  if (!Array.isArray(models)) return [];
+  return models.map(parseModel).filter((model): model is ModelInfo => model !== undefined);
+}
+
+function parseLevels(data: unknown): string[] {
+  const levels = asRecord(data)?.levels;
+  return Array.isArray(levels) ? levels.filter((level): level is string => typeof level === "string") : [];
 }
 
 function toError(value: unknown): Error {

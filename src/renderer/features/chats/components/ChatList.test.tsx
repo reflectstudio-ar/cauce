@@ -25,20 +25,20 @@ describe("ChatList", () => {
       makeChat({ id: "b", title: "Old chat", updatedAt: "2026-09-10T09:00:00.000Z", state: CHAT_STATE.NEEDS_YOU }),
     ];
 
-    render(<ChatList chats={chats} onSelect={vi.fn()} now={NOW} />);
+    render(<ChatList chats={chats} onSelect={vi.fn()} onRename={vi.fn()} onDelete={vi.fn()} now={NOW} />);
 
     expect(screen.getByRole("heading", { name: "Today" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "2026-09-10" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Today's chat/ })).toHaveTextContent("working");
-    expect(screen.getByRole("button", { name: /Old chat/ })).toHaveTextContent("needs you");
+    expect(screen.getByRole("button", { name: /^Today's chat/ })).toHaveTextContent("working");
+    expect(screen.getByRole("button", { name: /^Old chat/ })).toHaveTextContent("needs you");
   });
 
   it("calls onSelect with the chat when an item is clicked", () => {
     const chat = makeChat({ id: "clicked" });
     const onSelect = vi.fn();
 
-    render(<ChatList chats={[chat]} onSelect={onSelect} now={NOW} />);
-    screen.getByRole("button", { name: /A chat/ }).click();
+    render(<ChatList chats={[chat]} onSelect={onSelect} onRename={vi.fn()} onDelete={vi.fn()} now={NOW} />);
+    screen.getByRole("button", { name: /^A chat/ }).click();
 
     expect(onSelect).toHaveBeenCalledWith(chat);
   });
@@ -46,14 +46,14 @@ describe("ChatList", () => {
   it("marks the selected chat as current", () => {
     const chats = [makeChat({ id: "a", title: "First" }), makeChat({ id: "b", title: "Second" })];
 
-    render(<ChatList chats={chats} selectedId="b" onSelect={vi.fn()} now={NOW} />);
+    render(<ChatList chats={chats} selectedId="b" onSelect={vi.fn()} onRename={vi.fn()} onDelete={vi.fn()} now={NOW} />);
 
-    expect(screen.getByRole("button", { name: /First/ })).not.toHaveAttribute("aria-current");
-    expect(screen.getByRole("button", { name: /Second/ })).toHaveAttribute("aria-current", "true");
+    expect(screen.getByRole("button", { name: /^First/ })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("button", { name: /^Second/ })).toHaveAttribute("aria-current", "true");
   });
 
   it("renders nothing when there are no chats", () => {
-    const { container } = render(<ChatList chats={[]} onSelect={vi.fn()} now={NOW} />);
+    const { container } = render(<ChatList chats={[]} onSelect={vi.fn()} onRename={vi.fn()} onDelete={vi.fn()} now={NOW} />);
     expect(container.querySelectorAll("li")).toHaveLength(0);
   });
 });

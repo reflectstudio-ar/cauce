@@ -24,3 +24,26 @@
   margin: 0;
 }
 
+.gc-chats__filters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.gc-chats__filters .gc-text-field {
+  width: 100%;
+  font-size: 0.8125rem;
+}
+
+.gc-chats__error {
+  margin: 0;
+  color: var(--red);
+  font-size: 0.75rem;
+}
+
+.gc-chats__empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+

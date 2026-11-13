@@ -70,6 +70,8 @@ export function reduceChat(state: ChatState, event: RpcEvent, now?: string): Cha
         ...state,
         queue: { steering: [...event.steering], followUp: [...event.followUp] },
       };
+    case "thinking_level_changed":
+      return { ...state, thinkingLevel: event.level };
     case "tool_execution_start":
     case "tool_execution_update":
     case "tool_execution_end":

@@ -1,4 +1,10 @@
+import { execFile } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { appendFile, readFile, rm } from "node:fs/promises";
+import { promisify } from "node:util";
 import type { SessionInfoLike, SessionStore } from "../ports";
+
+const execFileAsync = promisify(execFile);
 
 /**
  * SessionStore backed by pi's own SessionManager.listAll(). The
@@ -38,7 +44,51 @@ export function createPiSessionStore(home: string): SessionStore {
         else process.env.PI_CODING_AGENT_DIR = previous;
       }
     },
+
+    /**
+     * pi reads a session's display name from the newest `session_info`
+     * entry (see session-format.md), the same entry `/name` appends. Doing
+     * it at the file level renames a closed session without spawning a
+     * process for it; a live session is renamed over RPC instead.
+     */
+    async rename(path: string, name: string): Promise<void> {
+      const raw = await readFile(path, "utf8");
+      const entry = {
+        type: "session_info",
+        id: randomBytes(4).toString("hex"),
+        parentId: lastEntryId(raw),
+        timestamp: new Date().toISOString(),
+        name,
+      };
+      await appendFile(path, `${JSON.stringify(entry)}\n`, "utf8");
+    },
+
+    async remove(path: string): Promise<void> {
+      // pi prefers the OS trash too (docs/sessions.md). `trash` is not
+      // installed by default on macOS, so fall back to a permanent delete
+      // after the renderer's explicit confirmation.
+      try {
+        await execFileAsync("trash", [path]);
+      } catch {
+        await rm(path, { force: true });
+      }
+    },
   };
+}
+
+/** The id of the last entry in a session file, used as the new entry's
+ * parent so the tree stays connected. Null when the file has no entries. */
+function lastEntryId(raw: string): string | null {
+  const lines = raw.split("\n").filter((line) => line.trim().length > 0);
+  for (let index = lines.length - 1; index >= 1; index -= 1) {
+    try {
+      const entry = JSON.parse(lines[index] ?? "") as { id?: unknown };
+      if (typeof entry.id === "string") return entry.id;
+    } catch {
+      // A malformed trailing line should not stop the rename.
+    }
+  }
+  return null;
 }
 
 /**
@@ -53,6 +103,12 @@ export function createDynamicPiSessionStore(resolveCurrentHome: () => string): S
   return {
     listAll(): Promise<SessionInfoLike[]> {
       return createPiSessionStore(resolveCurrentHome()).listAll();
+    },
+    rename(path: string, name: string): Promise<void> {
+      return createPiSessionStore(resolveCurrentHome()).rename(path, name);
+    },
+    remove(path: string): Promise<void> {
+      return createPiSessionStore(resolveCurrentHome()).remove(path);
     },
   };
 }

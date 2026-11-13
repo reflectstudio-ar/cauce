@@ -688,3 +688,62 @@ describe("PiSession: images, follow-up and queue", () => {
     expect(session.getState().queue).toEqual({ steering: ["a"], followUp: ["b"] });
   });
 });
+
+describe("PiSession: model, thinking and context", () => {
+  function emitResponse(handles: ReturnType<typeof createFakeSpawner>["handles"], data: unknown, command: string): void {
+    const sent = JSON.parse(handles[0]?.writes.at(-1) ?? "{}");
+    handles[0]?.emitStdout(JSON.stringify({ type: "response", id: sent.id, command, success: true, data }));
+  }
+
+  it("refreshSessionInfo applies the model and thinking level from get_state", async () => {
+    const { spawner, handles } = createFakeSpawner();
+    const session = new PiSession({ spawner, locator: fakeLocator, env: {} });
+    session.start();
+
+    const pending = session.refreshSessionInfo();
+    emitResponse(handles, { model: { id: "m1", name: "Model One", provider: "p", contextWindow: 1000 }, thinkingLevel: "high" }, "get_state");
+    await pending;
+
+    expect(session.getState().model).toEqual({ id: "m1", name: "Model One", provider: "p", contextWindow: 1000 });
+    expect(session.getState().thinkingLevel).toBe("high");
+  });
+
+  it("listModels parses the configured models", async () => {
+    const { spawner, handles } = createFakeSpawner();
+    const session = new PiSession({ spawner, locator: fakeLocator, env: {} });
+    session.start();
+
+    const pending = session.listModels();
+    emitResponse(handles, { models: [{ id: "a", name: "A", provider: "p" }, { nonsense: true }] }, "get_available_models");
+
+    await expect(pending).resolves.toEqual([{ id: "a", name: "A", provider: "p" }]);
+  });
+
+  it("setModel switches and stores the returned model", async () => {
+    const { spawner, handles } = createFakeSpawner();
+    const session = new PiSession({ spawner, locator: fakeLocator, env: {} });
+    session.start();
+
+    const pending = session.setModel("p", "b");
+    const sent = JSON.parse(handles[0]?.writes.at(-1) ?? "{}");
+    expect(sent).toMatchObject({ type: "set_model", provider: "p", modelId: "b" });
+    handles[0]?.emitStdout(
+      JSON.stringify({ type: "response", id: sent.id, command: "set_model", success: true, data: { id: "b", name: "B", provider: "p" } }),
+    );
+
+    await expect(pending).resolves.toEqual({ id: "b", name: "B", provider: "p" });
+    expect(session.getState().model).toEqual({ id: "b", name: "B", provider: "p" });
+  });
+
+  it("refreshStats stores the context usage", async () => {
+    const { spawner, handles } = createFakeSpawner();
+    const session = new PiSession({ spawner, locator: fakeLocator, env: {} });
+    session.start();
+
+    const pending = session.refreshStats();
+    emitResponse(handles, { contextUsage: { tokens: 1234, contextWindow: 200000, percent: 1 } }, "get_session_stats");
+    await pending;
+
+    expect(session.getState().context).toEqual({ tokens: 1234, contextWindow: 200000, percent: 1 });
+  });
+});

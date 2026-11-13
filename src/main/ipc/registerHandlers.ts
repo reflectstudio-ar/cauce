@@ -28,6 +28,8 @@ export function registerHandlers(host: ChatHost, setup: SetupService, webContent
   registerRequestHandler(ipc, IPC_CHANNELS.LIST_CHATS, () => host.listChats());
   registerRequestHandler(ipc, IPC_CHANNELS.OPEN_CHAT, (_event, id: string) => host.openChat(id));
   registerRequestHandler(ipc, IPC_CHANNELS.NEW_CHAT, () => host.newChat());
+  registerRequestHandler(ipc, IPC_CHANNELS.RENAME_CHAT, (_event, id: string, name: string) => host.renameChat(id, name));
+  registerRequestHandler(ipc, IPC_CHANNELS.DELETE_CHAT, (_event, id: string) => host.deleteChat(id));
   registerRequestHandler(ipc, IPC_CHANNELS.SEND_MESSAGE, (_event, text: string, images?: readonly PromptImage[]) =>
     host.sendMessage(text, images ?? []),
   );
@@ -35,6 +37,14 @@ export function registerHandlers(host: ChatHost, setup: SetupService, webContent
     host.followUp(text, images ?? []),
   );
   registerRequestHandler(ipc, IPC_CHANNELS.CLEAR_QUEUE, () => host.clearQueue());
+  registerRequestHandler(ipc, IPC_CHANNELS.MODELS_LIST, () => host.listModels());
+  registerRequestHandler(ipc, IPC_CHANNELS.MODEL_SET, (_event, provider: string, modelId: string) =>
+    host.setModel(provider, modelId),
+  );
+  registerRequestHandler(ipc, IPC_CHANNELS.THINKING_LEVELS, () => host.listThinkingLevels());
+  registerRequestHandler(ipc, IPC_CHANNELS.THINKING_SET, (_event, level: string) => host.setThinkingLevel(level));
+  registerRequestHandler(ipc, IPC_CHANNELS.STATS_REFRESH, () => host.refreshStats());
+  registerRequestHandler(ipc, IPC_CHANNELS.SESSION_INFO_REFRESH, () => host.refreshSessionInfo());
   registerRequestHandler(ipc, IPC_CHANNELS.ABORT, () => host.abort());
   registerRequestHandler(ipc, IPC_CHANNELS.ANSWER_DIALOG, (_event, id: string, answer: DialogAnswer) =>
     host.answerDialog(id, answer),

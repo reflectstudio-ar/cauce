@@ -1,4 +1,12 @@
-import type { ChatState, ChatSummary, DialogAnswer, PromptImage, PromptResult, QueueState } from "@shared/bridge-types";
+import type {
+  ChatState,
+  ChatSummary,
+  DialogAnswer,
+  ModelInfo,
+  PromptImage,
+  PromptResult,
+  QueueState,
+} from "@shared/bridge-types";
 import { boundedStop } from "../lifecycle/boundedStop";
 import type { RpcEvent } from "../rpc/types";
 import type { HomeSettings, LauncherLocator, ProcessSpawner, SessionStore } from "../../ports";
@@ -68,6 +76,7 @@ type ErrorListener = (message: string) => void;
 export class ChatHost {
   private readonly deps: ChatHostDeps;
   private current: PiSession | undefined;
+  private currentPath: string | undefined;
   private readonly stateListeners = new Set<StateListener>();
   private readonly errorListeners = new Set<ErrorListener>();
   /** Serializes startSession calls: a second open/new call queues behind
@@ -126,6 +135,58 @@ export class ChatHost {
     return this.requireCurrent().clearQueue();
   }
 
+  async listModels(): Promise<ModelInfo[]> {
+    return this.requireCurrent().listModels();
+  }
+
+  async setModel(provider: string, modelId: string): Promise<ModelInfo | undefined> {
+    return this.requireCurrent().setModel(provider, modelId);
+  }
+
+  async listThinkingLevels(): Promise<string[]> {
+    return this.requireCurrent().listThinkingLevels();
+  }
+
+  async setThinkingLevel(level: string): Promise<void> {
+    return this.requireCurrent().setThinkingLevel(level);
+  }
+
+  async refreshStats(): Promise<void> {
+    return this.requireCurrent().refreshStats();
+  }
+
+  async refreshSessionInfo(): Promise<void> {
+    return this.requireCurrent().refreshSessionInfo();
+  }
+
+  /** Renames a chat. The open one goes through pi (so the live session
+   * updates immediately); a closed one gets a `session_info` entry appended
+   * to its file, exactly what `/name` writes. */
+  async renameChat(id: string, name: string): Promise<void> {
+    const trimmed = name.trim();
+    if (trimmed.length === 0) throw new Error("ChatHost: a chat name cannot be empty");
+
+    const session = await this.findSession(id);
+    if (session.path === this.currentPath) {
+      this.requireCurrent().setSessionName(trimmed);
+      return;
+    }
+    await this.deps.sessionStore.rename(session.path, trimmed);
+  }
+
+  /** Deletes a chat, stopping it first when it is the open one. */
+  async deleteChat(id: string): Promise<void> {
+    const session = await this.findSession(id);
+
+    if (session.path === this.currentPath) {
+      await this.current?.stop();
+      this.current = undefined;
+      this.currentPath = undefined;
+    }
+
+    await this.deps.sessionStore.remove(session.path);
+  }
+
   async abort(): Promise<void> {
     this.requireCurrent().abort();
   }
@@ -143,6 +204,14 @@ export class ChatHost {
   async stop(): Promise<void> {
     await this.startChain;
     await this.current?.stop();
+    this.currentPath = undefined;
+  }
+
+  private async findSession(id: string) {
+    const sessions = await this.deps.sessionStore.listAll();
+    const match = sessions.find((session) => session.id === id);
+    if (!match) throw new Error(`ChatHost: no session found for id "${id}"`);
+    return match;
   }
 
   /** Queues this start behind the previous one via `startChain` (see its
@@ -174,6 +243,7 @@ export class ChatHost {
     session.on("error", (error) => this.emitError(error.message));
 
     this.current = session;
+    this.currentPath = sessionPath;
 
     if (sessionPath) {
       // Attach the listener before start() so it can never miss a response

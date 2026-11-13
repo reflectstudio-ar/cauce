@@ -52,7 +52,7 @@ describe("App", () => {
     render(<App />);
 
     // mockBridge's example chats load asynchronously into the sidebar.
-    const item = await screen.findByRole("button", { name: /Write the README intro/ });
+    const item = await screen.findByRole("button", { name: /^Write the README intro/ });
     item.click();
 
     expect(await screen.findByRole("heading", { name: "Write the README intro" })).toBeInTheDocument();

@@ -7,6 +7,8 @@ export interface ChatListProps {
   readonly chats: readonly ChatSummary[];
   readonly selectedId?: string;
   readonly onSelect: (chat: ChatSummary) => void;
+  readonly onRename: (chat: ChatSummary, name: string) => void;
+  readonly onDelete: (chat: ChatSummary) => void;
   /** Injected for deterministic day-bucketing in tests; defaults to `new Date()`. */
   readonly now?: Date;
 }
@@ -15,7 +17,7 @@ export interface ChatListProps {
 // src/main/domain/session/sessionList.ts once this feature needed it too)
 // and renders a ChatListItem per chat. ChatsContainer owns the bridge call
 // and the selected-chat callback.
-export function ChatList({ chats, selectedId, onSelect, now }: ChatListProps) {
+export function ChatList({ chats, selectedId, onSelect, onRename, onDelete, now }: ChatListProps) {
   const groups = groupChatsByDay(chats, now);
 
   return (
@@ -25,7 +27,15 @@ export function ChatList({ chats, selectedId, onSelect, now }: ChatListProps) {
           <h3 className="gc-chat-list__day">{group.label}</h3>
           <ul className="gc-chat-list__items">
             {group.chats.map((chat) => (
-              <ChatListItem key={chat.id} chat={chat} selected={chat.id === selectedId} onSelect={onSelect} />
+              <ChatListItem
+                key={chat.id}
+                chat={chat}
+                selected={chat.id === selectedId}
+                onSelect={onSelect}
+                onRename={onRename}
+                onDelete={onDelete}
+                now={now}
+              />
             ))}
           </ul>
         </section>

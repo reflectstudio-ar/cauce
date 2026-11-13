@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ChatState, ChatSummary, DialogAnswer } from "@shared/bridge-types";
+import type { ChatState, ChatSummary, DialogAnswer, ModelInfo } from "@shared/bridge-types";
 import { useBridge } from "@renderer/shared/bridge/useBridge";
 import { HelpersContainer } from "@renderer/features/helpers/HelpersContainer";
 import { readAttachments, type Attachment } from "./attachments";
@@ -51,6 +51,8 @@ export function ConversationContainer({ activeChat }: ConversationContainerProps
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<readonly Attachment[]>([]);
   const [notice, setNotice] = useState<string | undefined>(undefined);
+  const [models, setModels] = useState<readonly ModelInfo[]>([]);
+  const [thinkingLevels, setThinkingLevels] = useState<readonly string[]>([]);
   const [pane, setPane] = useState<ConversationPane>(CONVERSATION_PANE.CHAT);
   // The moment this chat became active — HelpersContainer's line between
   // "current" helpers and the collapsed "Earlier" group (format.ts's
@@ -89,7 +91,17 @@ export function ConversationContainer({ activeChat }: ConversationContainerProps
     const opening = activeChat.kind === "existing" ? bridge.openChat(activeChat.chat.id) : bridge.newChat();
     opening
       .then((state) => {
-        if (!cancelled) setChatState(state);
+        if (cancelled) return;
+        setChatState(state);
+        // Controls need the session's live process: ask only once the chat
+        // is open (a request before that resolves with an empty fallback).
+        void bridge.listModels().then((loaded) => !cancelled && setModels(loaded)).catch(() => undefined);
+        void bridge
+          .listThinkingLevels()
+          .then((loaded) => !cancelled && setThinkingLevels(loaded))
+          .catch(() => undefined);
+        void bridge.refreshStats().catch(() => undefined);
+        void bridge.refreshSessionInfo().catch(() => undefined);
       })
       .catch((cause: unknown) => {
         if (!cancelled) setBridgeError(errorText(cause));
@@ -158,6 +170,14 @@ export function ConversationContainer({ activeChat }: ConversationContainerProps
     bridge.answerDialog(id, answer).catch((cause: unknown) => setBridgeError(errorText(cause)));
   };
 
+  const handleSelectModel = (model: ModelInfo): void => {
+    bridge.setModel(model.provider, model.id).catch((cause: unknown) => setBridgeError(errorText(cause)));
+  };
+
+  const handleSelectThinking = (level: string): void => {
+    bridge.setThinkingLevel(level).catch((cause: unknown) => setBridgeError(errorText(cause)));
+  };
+
   const title = activeChat.kind === "existing" ? activeChat.chat.title : "New chat";
   const error = bridgeError ?? chatState.lastError;
   const queued = [...(chatState.queue?.steering ?? []), ...(chatState.queue?.followUp ?? [])];
@@ -170,6 +190,13 @@ export function ConversationContainer({ activeChat }: ConversationContainerProps
         pane={pane}
         runningHelpersCount={chatState.helpers.summary.running}
         onSelectPane={setPane}
+        model={chatState.model}
+        models={models}
+        thinkingLevel={chatState.thinkingLevel}
+        thinkingLevels={thinkingLevels}
+        context={chatState.context}
+        onSelectModel={handleSelectModel}
+        onSelectThinking={handleSelectThinking}
       />
       <StatusLine error={error} />
       {pane === CONVERSATION_PANE.HELPERS ? (

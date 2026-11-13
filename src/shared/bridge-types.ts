@@ -95,6 +95,21 @@ export interface QueueState {
   readonly followUp: readonly string[];
 }
 
+/** The subset of pi's model object the header needs. */
+export interface ModelInfo {
+  readonly id: string;
+  readonly name: string;
+  readonly provider: string;
+  readonly contextWindow?: number;
+}
+
+/** Current context-window usage, as `get_session_stats` reports it. */
+export interface ContextUsage {
+  readonly tokens: number | null;
+  readonly contextWindow: number;
+  readonly percent: number | null;
+}
+
 export interface ChatMessage {
   readonly id: string;
   readonly role: MessageRole;
@@ -191,6 +206,12 @@ export interface ChatState {
   readonly helpers: HelpersActivity;
   /** Steering and follow-up messages waiting for the running agent. */
   readonly queue?: QueueState;
+  /** The model currently selected for this session. */
+  readonly model?: ModelInfo;
+  /** The active thinking level (off, low, medium, high…). */
+  readonly thinkingLevel?: string;
+  /** Context-window usage after the last settled turn. */
+  readonly context?: ContextUsage;
 }
 
 export const HELPER_STATUS = {
@@ -341,6 +362,10 @@ export interface GentleBridge {
   openChat(id: string): Promise<ChatState>;
   /** Starts a fresh chat (no prior session file) and returns its initial ChatState. */
   newChat(): Promise<ChatState>;
+  /** Renames a chat (open or closed). */
+  renameChat(id: string, name: string): Promise<void>;
+  /** Deletes a chat and its session file. */
+  deleteChat(id: string): Promise<void>;
   /** Sends a message in whichever chat is currently open. While the agent
    * is working the message is queued as steering (delivered after the
    * current turn's tool calls) instead of being declined. */
@@ -350,6 +375,17 @@ export interface GentleBridge {
   /** Drops queued steering/follow-up messages and returns what was queued,
    * so the composer can restore the text. */
   clearQueue(): Promise<QueueState>;
+  /** Models the user's provider configuration exposes. */
+  listModels(): Promise<ModelInfo[]>;
+  /** Switches the session's model; resolves with the model pi selected. */
+  setModel(provider: string, modelId: string): Promise<ModelInfo | undefined>;
+  /** Thinking levels the current model supports. */
+  listThinkingLevels(): Promise<string[]>;
+  setThinkingLevel(level: string): Promise<void>;
+  /** Asks pi for fresh context usage (the app also does this on settle). */
+  refreshStats(): Promise<void>;
+  /** Reads the session's current model and thinking level. */
+  refreshSessionInfo(): Promise<void>;
   abort(): Promise<void>;
   answerDialog(id: string, answer: DialogAnswer): Promise<void>;
   /** Subscribes to ChatState pushes for the currently open chat. Returns an unsubscribe function. */

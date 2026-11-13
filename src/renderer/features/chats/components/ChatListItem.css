@@ -1,8 +1,10 @@
 .gc-chat-list-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "title pill"
+    "meta meta";
+  gap: 2px 0.5rem;
   width: 100%;
   padding: 0.6rem 0.75rem;
   border-radius: 8px;
@@ -13,6 +15,62 @@
   font-size: 0.875rem;
   text-align: left;
   cursor: pointer;
+}
+
+.gc-chat-list-item__row {
+  position: relative;
+}
+
+.gc-chat-list-item__actions {
+  position: absolute;
+  right: 6px;
+  bottom: 5px;
+  display: none;
+  gap: 3px;
+}
+
+.gc-chat-list-item__row:hover .gc-chat-list-item__actions,
+.gc-chat-list-item__row:focus-within .gc-chat-list-item__actions {
+  display: flex;
+}
+
+.gc-chat-list-item__action {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.gc-chat-list-item__action:hover {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.gc-chat-list-item__rename {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+}
+
+.gc-chat-list-item__rename .gc-text-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.gc-chat-list-item__meta {
+  grid-area: meta;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.6875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .gc-chat-list-item:hover {
@@ -26,7 +84,7 @@
 }
 
 .gc-chat-list-item__title {
-  flex: 1 1 auto;
+  grid-area: title;
   /* Without min-width: 0, a flex child can never shrink below its content's
      intrinsic width, so a long title pushes the state pill onto its own
      line instead of the title itself truncating — this is what let
@@ -35,4 +93,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.gc-chat-list-item .gc-pill {
+  grid-area: pill;
 }

@@ -4,6 +4,7 @@ import type {
   DialogAnswer,
   GentleBridge,
   HomeMode,
+  ModelInfo,
   PromptImage,
   PromptResult,
   QueueState,
@@ -31,11 +32,20 @@ export function createBridge(ipc: RendererIpc): GentleBridge {
     listChats: () => ipc.invoke(IPC_CHANNELS.LIST_CHATS) as Promise<ChatSummary[]>,
     openChat: (id: string) => ipc.invoke(IPC_CHANNELS.OPEN_CHAT, id) as Promise<ChatState>,
     newChat: () => ipc.invoke(IPC_CHANNELS.NEW_CHAT) as Promise<ChatState>,
+    renameChat: (id: string, name: string) => ipc.invoke(IPC_CHANNELS.RENAME_CHAT, id, name) as Promise<void>,
+    deleteChat: (id: string) => ipc.invoke(IPC_CHANNELS.DELETE_CHAT, id) as Promise<void>,
     sendMessage: (text: string, images?: readonly PromptImage[]) =>
       ipc.invoke(IPC_CHANNELS.SEND_MESSAGE, text, images) as Promise<PromptResult>,
     followUp: (text: string, images?: readonly PromptImage[]) =>
       ipc.invoke(IPC_CHANNELS.FOLLOW_UP, text, images) as Promise<PromptResult>,
     clearQueue: () => ipc.invoke(IPC_CHANNELS.CLEAR_QUEUE) as Promise<QueueState>,
+    listModels: () => ipc.invoke(IPC_CHANNELS.MODELS_LIST) as Promise<ModelInfo[]>,
+    setModel: (provider: string, modelId: string) =>
+      ipc.invoke(IPC_CHANNELS.MODEL_SET, provider, modelId) as Promise<ModelInfo | undefined>,
+    listThinkingLevels: () => ipc.invoke(IPC_CHANNELS.THINKING_LEVELS) as Promise<string[]>,
+    setThinkingLevel: (level: string) => ipc.invoke(IPC_CHANNELS.THINKING_SET, level) as Promise<void>,
+    refreshStats: () => ipc.invoke(IPC_CHANNELS.STATS_REFRESH) as Promise<void>,
+    refreshSessionInfo: () => ipc.invoke(IPC_CHANNELS.SESSION_INFO_REFRESH) as Promise<void>,
     abort: () => ipc.invoke(IPC_CHANNELS.ABORT) as Promise<void>,
     answerDialog: (id: string, answer: DialogAnswer) =>
       ipc.invoke(IPC_CHANNELS.ANSWER_DIALOG, id, answer) as Promise<void>,
