@@ -37,10 +37,56 @@ export const MESSAGE_ROLE = {
 
 export type MessageRole = (typeof MESSAGE_ROLE)[keyof typeof MESSAGE_ROLE];
 
+export const TOOL_STATUS = {
+  RUNNING: "running",
+  DONE: "done",
+  ERROR: "error",
+} as const;
+
+/** A tool call's lifecycle: it starts running, then finishes done or error. */
+export type ToolStatus = (typeof TOOL_STATUS)[keyof typeof TOOL_STATUS];
+
+export interface MessageTextBlock {
+  readonly kind: "text";
+  readonly text: string;
+}
+
+export interface MessageThinkingBlock {
+  readonly kind: "thinking";
+  readonly text: string;
+  /** Redacted thinking keeps its encrypted payload but has no visible text. */
+  readonly redacted?: boolean;
+}
+
+export interface MessageToolBlock {
+  readonly kind: "tool";
+  readonly callId: string;
+  readonly name: string;
+  /** The tool's parsed arguments (pi's `ToolCall.arguments`), when known. */
+  readonly args?: unknown;
+  /** The tool result's text content, when it finished. */
+  readonly output?: string;
+  readonly status: ToolStatus;
+  readonly durationMs?: number;
+  readonly isError?: boolean;
+}
+
+/**
+ * One ordered part of an assistant message. Text is the plain reply;
+ * thinking is the model's reasoning; tool is a call it made (with its
+ * arguments and result). A message whose only content is text leaves
+ * `blocks` undefined and carries it in `text` — the blocks array appears
+ * as soon as there is thinking or a tool call to show.
+ */
+export type MessageBlock = MessageTextBlock | MessageThinkingBlock | MessageToolBlock;
+
 export interface ChatMessage {
   readonly id: string;
   readonly role: MessageRole;
   readonly text: string;
+  /** Rich content, present only when the message has thinking or tool
+   * blocks; `text` stays the joined text either way. */
+  readonly blocks?: readonly MessageBlock[];
   /**
    * True while an assistant message is still streaming (between
    * message_start and message_end on the pi RPC wire). Optional so T1-era

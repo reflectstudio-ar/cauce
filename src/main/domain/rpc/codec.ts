@@ -99,11 +99,16 @@ function toRpcEvent(parsed: Record<string, unknown>): RpcEvent | undefined {
       return toMessageUpdateEvent(parsed.assistantMessageEvent);
     case "tool_execution_start":
       return typeof parsed.toolCallId === "string" && typeof parsed.toolName === "string"
-        ? { type: "tool_execution_start", toolCallId: parsed.toolCallId, toolName: parsed.toolName }
+        ? { type: "tool_execution_start", toolCallId: parsed.toolCallId, toolName: parsed.toolName, args: parsed.args }
         : undefined;
     case "tool_execution_update":
       return typeof parsed.toolCallId === "string" && typeof parsed.toolName === "string"
-        ? { type: "tool_execution_update", toolCallId: parsed.toolCallId, toolName: parsed.toolName }
+        ? {
+            type: "tool_execution_update",
+            toolCallId: parsed.toolCallId,
+            toolName: parsed.toolName,
+            partialResult: parsed.partialResult,
+          }
         : undefined;
     case "tool_execution_end":
       return typeof parsed.toolCallId === "string" && typeof parsed.toolName === "string"
@@ -111,7 +116,9 @@ function toRpcEvent(parsed: Record<string, unknown>): RpcEvent | undefined {
             type: "tool_execution_end",
             toolCallId: parsed.toolCallId,
             toolName: parsed.toolName,
+            result: parsed.result,
             isError: parsed.isError === true,
+            durationMs: asNumber(parsed.durationMs),
           }
         : undefined;
     case "extension_ui_request":

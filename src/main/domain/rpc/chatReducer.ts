@@ -1,11 +1,14 @@
 import {
   HELPER_STATUS,
   MESSAGE_ROLE,
+  TOOL_STATUS,
   type ChatMessage,
   type ChatState,
   type Dialog,
   type HelperTask,
   type HelpersActivity,
+  type MessageBlock,
+  type MessageToolBlock,
 } from "@shared/bridge-types";
 import { emptyHelpersActivity, parseHelpersActivity } from "./helpersActivity";
 import type { AssistantMessageEvent, FireAndForgetMethod, RpcEvent, RpcExtensionUIRequest, RpcMessage } from "./types";
@@ -65,7 +68,7 @@ export function reduceChat(state: ChatState, event: RpcEvent, now?: string): Cha
     case "tool_execution_start":
     case "tool_execution_update":
     case "tool_execution_end":
-      return { ...state, activity: state.activity + 1 };
+      return applyToolExecution(state, event);
     case "extension_ui_request":
       return applyExtensionUIRequest(state, event, now);
     case "extension_error":
@@ -76,6 +79,54 @@ export function reduceChat(state: ChatState, event: RpcEvent, now?: string): Cha
     default:
       return state;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Assistant messages and their content blocks
+// ---------------------------------------------------------------------------
+
+/**
+ * A message's blocks. Messages that only ever carried text leave `blocks`
+ * undefined and keep that text in `text` (the M1 shape); as soon as a
+ * thinking or tool-call part appears, the message switches to an ordered
+ * blocks array and `text` becomes the joined text blocks.
+ */
+function blocksOf(message: ChatMessage): MessageBlock[] {
+  if (message.blocks) return [...message.blocks];
+  return message.text.length > 0 ? [{ kind: "text", text: message.text }] : [];
+}
+
+function setBlockAt(blocks: readonly MessageBlock[], index: number, block: MessageBlock): MessageBlock[] {
+  const next = blocks.slice();
+  // Gaps should not happen (contentIndex follows pi's content array), but
+  // pad defensively so an unexpected index never produces a sparse array.
+  while (next.length < index) next.push({ kind: "text", text: "" });
+  next[index] = block;
+  return next;
+}
+
+function joinText(blocks: readonly MessageBlock[]): string {
+  return blocks
+    .filter((block): block is Extract<MessageBlock, { kind: "text" }> => block.kind === "text")
+    .map((block) => block.text)
+    .join("");
+}
+
+function hasRichBlocks(blocks: readonly MessageBlock[] | undefined): boolean {
+  return blocks?.some((block) => block.kind !== "text") ?? false;
+}
+
+function lastAssistantIndex(state: ChatState): number {
+  const index = state.messages.length - 1;
+  const message = state.messages[index];
+  return message && message.role === MESSAGE_ROLE.ASSISTANT ? index : -1;
+}
+
+function updateLastAssistant(state: ChatState, update: (message: ChatMessage) => ChatMessage): ChatState {
+  const index = lastAssistantIndex(state);
+  if (index < 0) return state;
+  const message = state.messages[index] as ChatMessage;
+  return { ...state, messages: replaceAt(state.messages, index, update(message)) };
 }
 
 function openAssistantMessage(state: ChatState, message: RpcMessage): ChatState {
@@ -91,75 +142,268 @@ function openAssistantMessage(state: ChatState, message: RpcMessage): ChatState 
 }
 
 function applyAssistantMessageEvent(state: ChatState, delta: AssistantMessageEvent): ChatState {
-  if (delta.type === "text_delta") {
-    return appendToLastAssistantMessage(state, delta.delta);
-  }
-  if (ACTIVITY_DELTA_TYPES.has(delta.type)) {
-    return { ...state, activity: state.activity + 1 };
-  }
-  // text_start/text_end/thinking_start/thinking_end already covered above
-  // (thinking_* bumps activity, text_* otherwise carries nothing new: the
-  // running text is assembled from text_delta and finalized on message_end).
-  return state;
+  const next = applyAssistantBlockEvent(state, delta);
+  // Thinking and tool-call activity keeps the counter moving even when the
+  // user is looking at a header/status affordance rather than the thread.
+  return ACTIVITY_DELTA_TYPES.has(delta.type) ? { ...next, activity: next.activity + 1 } : next;
 }
 
-function appendToLastAssistantMessage(state: ChatState, delta: string): ChatState {
-  const lastIndex = state.messages.length - 1;
-  const last = state.messages[lastIndex];
-  if (!last || last.role !== MESSAGE_ROLE.ASSISTANT) return state;
+function applyAssistantBlockEvent(state: ChatState, delta: AssistantMessageEvent): ChatState {
+  switch (delta.type) {
+    case "text_delta":
+      return appendTextDelta(state, delta.contentIndex, delta.delta);
+    case "text_end":
+      return writeTextBlock(state, delta.contentIndex, delta.content);
+    case "thinking_start":
+      return writeThinkingBlock(state, delta.contentIndex, "");
+    case "thinking_delta":
+      return appendThinkingDelta(state, delta.contentIndex, delta.delta);
+    case "thinking_end":
+      return writeThinkingBlock(state, delta.contentIndex, delta.content);
+    case "toolcall_start":
+      return startToolCall(state, delta.contentIndex, delta.id, delta.toolName);
+    case "toolcall_end":
+      return finishToolCall(state, delta.contentIndex, delta.toolCall);
+    default:
+      // text_start opens a block that the first text_delta already creates;
+      // toolcall_delta streams serialized arguments we replace wholesale at
+      // toolcall_end (the authoritative ToolCall).
+      return state;
+  }
+}
 
-  const updated: ChatMessage = { ...last, text: last.text + delta };
-  return { ...state, messages: replaceAt(state.messages, lastIndex, updated) };
+function appendTextDelta(state: ChatState, contentIndex: number, delta: string): ChatState {
+  return updateLastAssistant(state, (message) => {
+    if (!message.blocks) return { ...message, text: message.text + delta };
+
+    const blocks = message.blocks.slice();
+    const existing = blocks[contentIndex];
+    blocks[contentIndex] =
+      existing?.kind === "text" ? { kind: "text", text: existing.text + delta } : { kind: "text", text: delta };
+    return { ...message, blocks, text: joinText(blocks) };
+  });
+}
+
+function writeTextBlock(state: ChatState, contentIndex: number, content: string): ChatState {
+  return updateLastAssistant(state, (message) => {
+    if (!message.blocks) return { ...message, text: content };
+
+    const blocks = setBlockAt(message.blocks, contentIndex, { kind: "text", text: content });
+    return { ...message, blocks, text: joinText(blocks) };
+  });
+}
+
+function writeThinkingBlock(state: ChatState, contentIndex: number, text: string): ChatState {
+  return updateLastAssistant(state, (message) => {
+    const blocks = setBlockAt(blocksOf(message), contentIndex, { kind: "thinking", text });
+    return { ...message, blocks, text: joinText(blocks) };
+  });
+}
+
+function appendThinkingDelta(state: ChatState, contentIndex: number, delta: string): ChatState {
+  return updateLastAssistant(state, (message) => {
+    const blocks = blocksOf(message);
+    const existing = blocks[contentIndex];
+    blocks[contentIndex] =
+      existing?.kind === "thinking" ? { kind: "thinking", text: existing.text + delta } : { kind: "thinking", text: delta };
+    return { ...message, blocks, text: joinText(blocks) };
+  });
+}
+
+function startToolCall(state: ChatState, contentIndex: number, callId: string, name: string): ChatState {
+  return updateLastAssistant(state, (message) => {
+    const blocks = setBlockAt(blocksOf(message), contentIndex, {
+      kind: "tool",
+      callId,
+      name,
+      status: TOOL_STATUS.RUNNING,
+    });
+    return { ...message, blocks, text: joinText(blocks) };
+  });
+}
+
+function finishToolCall(state: ChatState, contentIndex: number, rawToolCall: unknown): ChatState {
+  const toolCall = asRecord(rawToolCall);
+  if (!toolCall) return state;
+
+  const callId = asString(toolCall.id);
+  const name = asString(toolCall.name);
+  const args = toolCall.arguments;
+
+  return updateLastAssistant(state, (message) => {
+    const blocks = blocksOf(message);
+    const atIndex = blocks[contentIndex];
+    const target = atIndex?.kind === "tool" && (!callId || atIndex.callId === callId) ? contentIndex : findToolBlock(blocks, callId);
+    if (target < 0 && !callId) return message;
+
+    const base: MessageToolBlock =
+      target >= 0 && blocks[target]?.kind === "tool"
+        ? (blocks[target] as MessageToolBlock)
+        : { kind: "tool", callId: callId ?? "", name: name ?? "tool", status: TOOL_STATUS.RUNNING };
+    const updated: MessageToolBlock = {
+      ...base,
+      callId: callId ?? base.callId,
+      name: name ?? base.name,
+      ...(args !== undefined ? { args } : {}),
+    };
+    const nextBlocks = setBlockAt(blocks, target >= 0 ? target : contentIndex, updated);
+    return { ...message, blocks: nextBlocks, text: joinText(nextBlocks) };
+  });
+}
+
+function applyToolExecution(
+  state: ChatState,
+  event: Extract<RpcEvent, { readonly type: "tool_execution_start" | "tool_execution_update" | "tool_execution_end" }>,
+): ChatState {
+  const withActivity = { ...state, activity: state.activity + 1 };
+
+  for (let index = state.messages.length - 1; index >= 0; index -= 1) {
+    const message = state.messages[index] as ChatMessage;
+    if (message.role !== MESSAGE_ROLE.ASSISTANT || !message.blocks) continue;
+
+    const blockIndex = findToolBlock(message.blocks, event.toolCallId);
+    if (blockIndex < 0) continue;
+
+    const block = message.blocks[blockIndex] as MessageToolBlock;
+    const updated = applyToolEventToBlock(block, event);
+    const blocks = setBlockAt(message.blocks, blockIndex, updated);
+    return { ...withActivity, messages: replaceAt(state.messages, index, { ...message, blocks }) };
+  }
+
+  // A tool can run without an open assistant message carrying its call (an
+  // extension-initiated tool, or an event reordered ahead of message_end):
+  // the activity counter still moves, nothing else to attach it to.
+  return withActivity;
+}
+
+function applyToolEventToBlock(
+  block: MessageToolBlock,
+  event: Extract<RpcEvent, { readonly type: "tool_execution_start" | "tool_execution_update" | "tool_execution_end" }>,
+): MessageToolBlock {
+  if (event.type === "tool_execution_start") {
+    return { ...block, status: TOOL_STATUS.RUNNING, ...(block.args !== undefined || event.args === undefined ? {} : { args: event.args }) };
+  }
+  if (event.type === "tool_execution_update") {
+    const output = textFromToolResult(event.partialResult);
+    return output === undefined ? block : { ...block, output };
+  }
+  const output = textFromToolResult(event.result);
+  return {
+    ...block,
+    status: event.isError ? TOOL_STATUS.ERROR : TOOL_STATUS.DONE,
+    isError: event.isError,
+    ...(output !== undefined && output !== block.output ? { output } : {}),
+    ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
+  };
+}
+
+function findToolBlock(blocks: readonly MessageBlock[], callId: string | undefined): number {
+  if (!callId) return -1;
+  return blocks.findIndex((block) => block.kind === "tool" && block.callId === callId);
 }
 
 function closeAssistantMessage(state: ChatState, message: RpcMessage): ChatState {
   if (message.role !== "assistant") return state;
 
-  const lastIndex = state.messages.length - 1;
-  const last = state.messages[lastIndex];
-  if (!last || last.role !== MESSAGE_ROLE.ASSISTANT) return state;
+  const index = lastAssistantIndex(state);
+  if (index < 0) return state;
+  const last = state.messages[index] as ChatMessage;
 
-  // message_end.message is authoritative per rpc.md; resync from its text
-  // content blocks when present, otherwise keep what text_delta accumulated.
-  const authoritativeText = extractAssistantText(message) ?? last.text;
+  // message_end.message is authoritative per rpc.md; resync from its
+  // content blocks when present, otherwise keep what the deltas accumulated.
+  const authoritative = blocksFromContent(message.content);
+  const blocks = authoritative ? mergeToolRuntime(authoritative, last.blocks) : last.blocks;
+  const text = blocks ? joinText(blocks) : last.text;
 
-  // An assistant message that only ever carried thinking/toolCall parts
-  // (never a text part, and no text_delta landed either) finalizes with
-  // nothing to show: drop it instead of leaving an empty grey bubble in the
-  // thread. Every fixture/test replayed here closes an open message with
-  // message_end (see prompt-turn.jsonl and tool-only-message.jsonl); no
-  // observed event flow lets a message reach agent_settled without first
-  // going through message_end, so finalization removal lives here only.
-  // Dropping the last element shrinks `state.messages.length` back down, so
-  // the id scheme (`msg-${state.messages.length}` in openAssistantMessage)
-  // reassigns the freed id to the next assistant message with no gap or
-  // extra bookkeeping needed.
-  if (authoritativeText.trim().length === 0) {
-    return { ...state, messages: removeLast(state.messages) };
+  // A message with nothing but whitespace text finalizes as an empty grey
+  // bubble: drop it instead of showing it. Rich blocks (thinking or a tool
+  // call) are worth showing even with no text at all — a tool-only turn is
+  // exactly what Fase 1 exists to surface.
+  if (!hasRichBlocks(blocks)) {
+    if (text.trim().length === 0) {
+      return { ...state, messages: removeLast(state.messages) };
+    }
+    return { ...state, messages: replaceAt(state.messages, index, { ...last, blocks: undefined, text, streaming: false }) };
   }
 
-  const updated: ChatMessage = { ...last, text: authoritativeText, streaming: false };
-  return { ...state, messages: replaceAt(state.messages, lastIndex, updated) };
+  return { ...state, messages: replaceAt(state.messages, index, { ...last, blocks, text, streaming: false }) };
 }
 
-function extractAssistantText(message: RpcMessage): string | undefined {
-  const content = message.content;
+/** Carries each tool block's runtime state (output, status, duration, args)
+ * over from the streamed blocks into the authoritative ones, which only
+ * know the call itself. */
+function mergeToolRuntime(authoritative: readonly MessageBlock[], previous: readonly MessageBlock[] | undefined): MessageBlock[] {
+  if (!previous) return [...authoritative];
+
+  return authoritative.map((block) => {
+    if (block.kind !== "tool") return block;
+    const prior = previous.find(
+      (candidate): candidate is MessageToolBlock => candidate.kind === "tool" && candidate.callId === block.callId,
+    );
+    if (!prior) return block;
+    return {
+      ...block,
+      ...(block.args !== undefined || prior.args === undefined ? {} : { args: prior.args }),
+      ...(prior.output !== undefined ? { output: prior.output } : {}),
+      ...(prior.status === TOOL_STATUS.RUNNING ? {} : { status: prior.status }),
+      ...(prior.isError !== undefined ? { isError: prior.isError } : {}),
+      ...(prior.durationMs !== undefined ? { durationMs: prior.durationMs } : {}),
+    };
+  });
+}
+
+function blocksFromContent(content: unknown): MessageBlock[] | undefined {
+  if (!Array.isArray(content) || content.length === 0) return undefined;
+
+  const blocks: MessageBlock[] = [];
+  for (const raw of content) {
+    const block = toBlock(raw);
+    if (block) blocks.push(block);
+  }
+  return blocks.length > 0 ? blocks : undefined;
+}
+
+function toBlock(raw: unknown): MessageBlock | undefined {
+  const value = asRecord(raw);
+  if (!value) return undefined;
+
+  if (value.type === "text" && typeof value.text === "string") return { kind: "text", text: value.text };
+  if (value.type === "thinking" && typeof value.thinking === "string") {
+    return value.redacted === true
+      ? { kind: "thinking", text: value.thinking, redacted: true }
+      : { kind: "thinking", text: value.thinking };
+  }
+  if (value.type === "toolCall" && typeof value.id === "string" && typeof value.name === "string") {
+    return { kind: "tool", callId: value.id, name: value.name, args: value.arguments, status: TOOL_STATUS.RUNNING };
+  }
+  return undefined;
+}
+
+/** pi tool results carry `content: [{type:"text", text}]`; a plain string is
+ * tolerated too. Returns undefined when there is nothing textual. */
+function textFromToolResult(result: unknown): string | undefined {
+  if (typeof result === "string") return result;
+  const value = asRecord(result);
+  if (!value) return undefined;
+
+  const content = value.content;
+  if (typeof content === "string") return content;
   if (!Array.isArray(content)) return undefined;
 
-  return content
-    .filter(isTextBlock)
-    .map((block) => block.text)
-    .join("");
+  const parts: string[] = [];
+  for (const rawPart of content) {
+    const part = asRecord(rawPart);
+    if (part && part.type === "text" && typeof part.text === "string") parts.push(part.text);
+  }
+  return parts.length > 0 ? parts.join("") : undefined;
 }
 
-function isTextBlock(value: unknown): value is { type: "text"; text: string } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    (value as Record<string, unknown>).type === "text" &&
-    typeof (value as Record<string, unknown>).text === "string"
-  );
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }
 
 function applyExtensionUIRequest(state: ChatState, event: RpcExtensionUIRequest, now: string | undefined): ChatState {

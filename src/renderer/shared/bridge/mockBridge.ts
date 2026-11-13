@@ -15,9 +15,11 @@ import {
   type HelpersActivity,
   type HelpersSummary,
   type HomeMode,
+  type MessageBlock,
   type PiDetection,
   type PromptResult,
   type SetupStatus,
+  TOOL_STATUS,
 } from "@shared/bridge-types";
 
 /**
@@ -151,17 +153,58 @@ async function streamReply(userText: string): Promise<void> {
   const reply = `Got it — you said: "${userText}". This is a mock reply for the browser preview.`;
   const words = reply.split(" ");
   const assistantMessage = makeMessage(MESSAGE_ROLE.ASSISTANT, "", true);
+  const callId = "mock-call-1";
+
+  // Mirrors a real gentle-shell turn: thinking, a bash tool call that runs
+  // and finishes, then the streamed answer. Enough to exercise the whole
+  // rich thread (thinking disclosure, tool card with output) in dev:web.
+  const blocks: MessageBlock[] = [{ kind: "thinking", text: "Let me check the repository state before answering." }];
+
+  const show = (): void => {
+    setState({
+      ...currentState,
+      messages: currentState.messages.map((message) =>
+        message.id === assistantMessage.id
+          ? { ...message, blocks: blocks.map((block) => ({ ...block })), text: blockText(blocks) }
+          : message,
+      ),
+    });
+  };
 
   setState({ ...currentState, working: true, messages: [...currentState.messages, assistantMessage] });
+  show();
+  await delay(350);
+
+  blocks.push({
+    kind: "tool",
+    callId,
+    name: "bash",
+    args: { command: "git status --short" },
+    status: TOOL_STATUS.RUNNING,
+  });
+  show();
+  await delay(600);
+
+  blocks[1] = {
+    kind: "tool",
+    callId,
+    name: "bash",
+    args: { command: "git status --short" },
+    status: TOOL_STATUS.DONE,
+    output: " M src/renderer/app/App.tsx\n M src/renderer/shared/theme/tokens.css",
+    durationMs: 612,
+  };
+  show();
 
   let text = "";
   for (const [index, word] of words.entries()) {
     await delay(STREAM_DELAY_MS);
     text += index === 0 ? word : ` ${word}`;
-    setState({
-      ...currentState,
-      messages: currentState.messages.map((message) => (message.id === assistantMessage.id ? { ...message, text } : message)),
-    });
+    const textIndex = blocks.findIndex((block) => block.kind === "text");
+    const textBlock: MessageBlock = { kind: "text", text };
+    if (textIndex >= 0) blocks[textIndex] = textBlock;
+    else blocks.push(textBlock);
+    show();
   }
 
   setState({
@@ -171,6 +214,13 @@ async function streamReply(userText: string): Promise<void> {
       message.id === assistantMessage.id ? { ...message, streaming: false } : message,
     ),
   });
+}
+
+function blockText(blocks: readonly MessageBlock[]): string {
+  return blocks
+    .filter((block): block is Extract<MessageBlock, { kind: "text" }> => block.kind === "text")
+    .map((block) => block.text)
+    .join("");
 }
 
 function makeDialogForKeyword(text: string): Dialog | undefined {

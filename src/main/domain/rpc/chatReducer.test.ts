@@ -124,10 +124,18 @@ describe("reduceChat: assistant message streaming", () => {
       type: "message_update",
       assistantMessageEvent: { type: "toolcall_start", contentIndex: 0, id: "call_1", toolName: "bash" },
     });
-    expect(state.messages).toEqual([{ id: "msg-0", role: "assistant", text: "", streaming: true }]);
+    expect(state.messages).toEqual([
+      {
+        id: "msg-0",
+        role: "assistant",
+        text: "",
+        streaming: true,
+        blocks: [{ kind: "tool", callId: "call_1", name: "bash", status: "running" }],
+      },
+    ]);
   });
 
-  it("message_end drops an assistant message that finalizes with empty trimmed text (tool-only or thinking-only content)", () => {
+  it("message_end keeps a tool-only assistant message instead of dropping it", () => {
     let state = reduceChat(INITIAL_CHAT_STATE, {
       type: "message_start",
       message: { role: "assistant", content: [] },
@@ -147,7 +155,15 @@ describe("reduceChat: assistant message streaming", () => {
         content: [{ type: "toolCall", id: "call_1", name: "bash", arguments: {} }],
       },
     });
-    expect(state.messages).toEqual([]);
+    expect(state.messages).toEqual([
+      {
+        id: "msg-0",
+        role: "assistant",
+        text: "",
+        streaming: false,
+        blocks: [{ kind: "tool", callId: "call_1", name: "bash", args: {}, status: "running" }],
+      },
+    ]);
   });
 
   it("message_end drops an assistant message whose authoritative text is only whitespace", () => {
@@ -187,7 +203,14 @@ describe("reduceChat: assistant message streaming", () => {
   });
 });
 
-describe("reduceChat: thinking, toolcall, tool_execution never touch messages", () => {
+describe("reduceChat: thinking and tool calls become blocks", () => {
+  function openAssistant() {
+    return reduceChat(INITIAL_CHAT_STATE, {
+      type: "message_start",
+      message: { role: "assistant", content: [] },
+    });
+  }
+
   it.each([
     { type: "thinking_start" as const, contentIndex: 0 },
     { type: "thinking_delta" as const, contentIndex: 0, delta: "..." },
@@ -195,26 +218,146 @@ describe("reduceChat: thinking, toolcall, tool_execution never touch messages", 
     { type: "toolcall_start" as const, contentIndex: 1, id: "call_1", toolName: "bash" },
     { type: "toolcall_delta" as const, contentIndex: 1, delta: "{}" },
     { type: "toolcall_end" as const, contentIndex: 1, toolCall: {} },
-  ])("$type bumps activity but leaves messages untouched", (assistantMessageEvent) => {
+  ])("$type still bumps the activity counter", (assistantMessageEvent) => {
+    const state = openAssistant();
+    const after = reduceChat(state, { type: "message_update", assistantMessageEvent });
+    expect(after.activity).toBe(state.activity + 1);
+  });
+
+  it("thinking deltas accumulate into a thinking block, leaving text empty", () => {
+    let state = openAssistant();
+    state = reduceChat(state, {
+      type: "message_update",
+      assistantMessageEvent: { type: "thinking_start", contentIndex: 0 },
+    });
+    state = reduceChat(state, {
+      type: "message_update",
+      assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta: "Let me " },
+    });
+    state = reduceChat(state, {
+      type: "message_update",
+      assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta: "check." },
+    });
+
+    expect(state.messages[0]?.blocks).toEqual([{ kind: "thinking", text: "Let me check." }]);
+    expect(state.messages[0]?.text).toBe("");
+  });
+
+  it("keeps content order when text follows thinking", () => {
+    let state = openAssistant();
+    state = reduceChat(state, {
+      type: "message_update",
+      assistantMessageEvent: { type: "thinking_start", contentIndex: 0 },
+    });
+    state = reduceChat(state, {
+      type: "message_update",
+      assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta: "Hmm." },
+    });
+    state = reduceChat(state, {
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", contentIndex: 1, delta: "Done." },
+    });
+
+    expect(state.messages[0]?.blocks).toEqual([
+      { kind: "thinking", text: "Hmm." },
+      { kind: "text", text: "Done." },
+    ]);
+    expect(state.messages[0]?.text).toBe("Done.");
+  });
+
+  it("toolcall_start opens a running tool block and toolcall_end fills its arguments", () => {
+    let state = openAssistant();
+    state = reduceChat(state, {
+      type: "message_update",
+      assistantMessageEvent: { type: "toolcall_start", contentIndex: 0, id: "call_1", toolName: "bash" },
+    });
+    expect(state.messages[0]?.blocks).toEqual([{ kind: "tool", callId: "call_1", name: "bash", status: "running" }]);
+
+    state = reduceChat(state, {
+      type: "message_update",
+      assistantMessageEvent: {
+        type: "toolcall_end",
+        contentIndex: 0,
+        toolCall: { id: "call_1", name: "bash", arguments: { command: "ls" } },
+      },
+    });
+    expect(state.messages[0]?.blocks).toEqual([
+      { kind: "tool", callId: "call_1", name: "bash", args: { command: "ls" }, status: "running" },
+    ]);
+  });
+
+  it("tool_execution_end attaches output, status and duration to the matching block", () => {
+    let state = openAssistant();
+    state = reduceChat(state, {
+      type: "message_update",
+      assistantMessageEvent: { type: "toolcall_start", contentIndex: 0, id: "call_1", toolName: "bash" },
+    });
+    state = reduceChat(state, {
+      type: "tool_execution_start",
+      toolCallId: "call_1",
+      toolName: "bash",
+      args: { command: "ls" },
+    });
+    state = reduceChat(state, {
+      type: "tool_execution_end",
+      toolCallId: "call_1",
+      toolName: "bash",
+      result: { content: [{ type: "text", text: "README.md" }] },
+      isError: false,
+      durationMs: 12,
+    });
+
+    expect(state.messages[0]?.blocks).toEqual([
+      {
+        kind: "tool",
+        callId: "call_1",
+        name: "bash",
+        args: { command: "ls" },
+        status: "done",
+        output: "README.md",
+        isError: false,
+        durationMs: 12,
+      },
+    ]);
+  });
+
+  it("tool_execution_end with isError marks the block as error", () => {
+    let state = openAssistant();
+    state = reduceChat(state, {
+      type: "message_update",
+      assistantMessageEvent: { type: "toolcall_start", contentIndex: 0, id: "call_1", toolName: "bash" },
+    });
+    state = reduceChat(state, {
+      type: "tool_execution_end",
+      toolCallId: "call_1",
+      toolName: "bash",
+      result: { content: [{ type: "text", text: "command not found" }] },
+      isError: true,
+    });
+
+    expect(state.messages[0]?.blocks).toEqual([
+      {
+        kind: "tool",
+        callId: "call_1",
+        name: "bash",
+        status: "error",
+        output: "command not found",
+        isError: true,
+      },
+    ]);
+  });
+
+  it("tool_execution for a call with no block only bumps activity", () => {
     const before = { ...INITIAL_CHAT_STATE, messages: [{ id: "msg-0", role: "assistant" as const, text: "" }] };
-    const after = reduceChat(before, { type: "message_update", assistantMessageEvent });
+    const after = reduceChat(before, {
+      type: "tool_execution_end",
+      toolCallId: "orphan",
+      toolName: "bash",
+      isError: false,
+    });
     expect(after.messages).toBe(before.messages);
     expect(after.activity).toBe(before.activity + 1);
   });
-
-  it.each(["tool_execution_start", "tool_execution_update", "tool_execution_end"] as const)(
-    "%s bumps activity but leaves messages untouched",
-    (type) => {
-      const before = { ...INITIAL_CHAT_STATE, messages: [{ id: "msg-0", role: "assistant" as const, text: "" }] };
-      const event: RpcEvent =
-        type === "tool_execution_end"
-          ? { type, toolCallId: "call_1", toolName: "bash", isError: false }
-          : { type, toolCallId: "call_1", toolName: "bash" };
-      const after = reduceChat(before, event);
-      expect(after.messages).toBe(before.messages);
-      expect(after.activity).toBe(before.activity + 1);
-    },
-  );
 });
 
 describe("reduceChat: extension UI dialogs", () => {
@@ -298,10 +441,28 @@ describe("reduceChat: errors and unhandled events", () => {
 });
 
 describe("reduceChat: fixture replays", () => {
-  it("a prompt turn with thinking, a tool call and streamed text ends with only the final assistant text visible", () => {
+  it("a prompt turn with thinking, a tool call and streamed text keeps all three blocks in order", () => {
     const state = replay(readFixtureEvents("prompt-turn.jsonl"));
     expect(state.messages).toEqual([
-      { id: "msg-0", role: "assistant", text: "The README describes Gentle Shell.", streaming: false },
+      {
+        id: "msg-0",
+        role: "assistant",
+        text: "The README describes Gentle Shell.",
+        streaming: false,
+        blocks: [
+          { kind: "thinking", text: "Let me check the file first." },
+          {
+            kind: "tool",
+            callId: "call_abc123",
+            name: "bash",
+            args: { command: "cat README.md" },
+            status: "done",
+            output: "# Gentle Shell\n",
+            isError: false,
+          },
+          { kind: "text", text: "The README describes Gentle Shell." },
+        ],
+      },
     ]);
     expect(state.working).toBe(false);
     expect(state.pendingDialogs).toEqual([]);
@@ -310,9 +471,26 @@ describe("reduceChat: fixture replays", () => {
     expect(state.activity).toBe(9);
   });
 
-  it("a turn whose assistant message only calls a tool leaves no empty message behind after message_end", () => {
+  it("a turn whose assistant message only calls a tool keeps the tool block after message_end", () => {
     const state = replay(readFixtureEvents("tool-only-message.jsonl"));
-    expect(state.messages).toEqual([]);
+    expect(state.messages).toEqual([
+      {
+        id: "msg-0",
+        role: "assistant",
+        text: "",
+        streaming: false,
+        blocks: [
+          {
+            kind: "tool",
+            callId: "call_1",
+            name: "bash",
+            args: { command: "ls" },
+            status: "done",
+            isError: false,
+          },
+        ],
+      },
+    ]);
     expect(state.working).toBe(false);
   });
 

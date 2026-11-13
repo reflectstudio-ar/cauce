@@ -150,13 +150,20 @@ export type RpcEvent =
   | { readonly type: "message_start"; readonly message: RpcMessage }
   | { readonly type: "message_update"; readonly assistantMessageEvent: AssistantMessageEvent }
   | { readonly type: "message_end"; readonly message: RpcMessage }
-  | { readonly type: "tool_execution_start"; readonly toolCallId: string; readonly toolName: string }
-  | { readonly type: "tool_execution_update"; readonly toolCallId: string; readonly toolName: string }
+  | { readonly type: "tool_execution_start"; readonly toolCallId: string; readonly toolName: string; readonly args?: unknown }
+  | {
+      readonly type: "tool_execution_update";
+      readonly toolCallId: string;
+      readonly toolName: string;
+      readonly partialResult?: unknown;
+    }
   | {
       readonly type: "tool_execution_end";
       readonly toolCallId: string;
       readonly toolName: string;
+      readonly result?: unknown;
       readonly isError: boolean;
+      readonly durationMs?: number;
     }
   | RpcExtensionUIRequest
   | { readonly type: "extension_error"; readonly extensionPath: string; readonly event: string; readonly error: string }

@@ -108,7 +108,9 @@ describe("mockBridge", () => {
     const { states } = collectStates();
 
     await mockBridge.sendMessage("hello Gentle");
-    await vi.waitFor(() => expect(states.at(-1)?.working).toBe(false));
+    // The mock now plays a thinking phase and a tool call before streaming
+    // the answer, so the full turn takes longer than the default wait.
+    await vi.waitFor(() => expect(states.at(-1)?.working).toBe(false), { timeout: 5000 });
 
     expect(states.at(-1)?.messages.at(-1)?.text).toContain("hello Gentle");
   });

@@ -1,0 +1,149 @@
+.gc-tool {
+  margin: 6px 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  font-family: var(--font-body);
+  font-size: 0.8125rem;
+  overflow: hidden;
+}
+
+.gc-tool__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.gc-tool__header:hover {
+  background: var(--raised);
+}
+
+.gc-tool__dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+.gc-tool--running .gc-tool__dot {
+  background: var(--amber);
+}
+
+.gc-tool--error .gc-tool__dot {
+  background: var(--red);
+}
+
+.gc-tool__name {
+  flex: none;
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.gc-tool__summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.gc-tool__status {
+  flex: none;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.gc-tool__duration {
+  opacity: 0.8;
+}
+
+.gc-tool__chevron {
+  flex: none;
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+
+.gc-tool__chevron--open {
+  transform: rotate(180deg);
+}
+
+.gc-tool__body {
+  padding: 0 12px 10px;
+  border-top: 1px solid var(--line);
+}
+
+.gc-tool__section {
+  margin-top: 8px;
+}
+
+.gc-tool__label {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.gc-tool__pre {
+  margin: 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--raised);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.gc-tool__diff {
+  margin: 8px 0 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--raised);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.gc-tool__diff-line {
+  display: block;
+}
+
+.gc-tool__diff-line--add {
+  color: var(--green);
+}
+
+.gc-tool__diff-line--del {
+  color: var(--red);
+}
+
+.gc-tool__diff-line--same {
+  color: var(--muted);
+}
+
+.gc-tool__running {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+}

@@ -130,13 +130,20 @@ describe("decodeLine", () => {
 
   it("decodes tool_execution_start/update/end", () => {
     expect(
-      decodeLine('{"type":"tool_execution_start","toolCallId":"call_1","toolName":"bash","args":{}}'),
-    ).toEqual({ type: "tool_execution_start", toolCallId: "call_1", toolName: "bash" });
+      decodeLine('{"type":"tool_execution_start","toolCallId":"call_1","toolName":"bash","args":{"command":"ls"}}'),
+    ).toEqual({ type: "tool_execution_start", toolCallId: "call_1", toolName: "bash", args: { command: "ls" } });
     expect(
       decodeLine(
-        '{"type":"tool_execution_end","toolCallId":"call_1","toolName":"bash","result":{},"isError":false}',
+        '{"type":"tool_execution_end","toolCallId":"call_1","toolName":"bash","result":{"content":[{"type":"text","text":"ok"}]},"isError":false,"durationMs":12}',
       ),
-    ).toEqual({ type: "tool_execution_end", toolCallId: "call_1", toolName: "bash", isError: false });
+    ).toEqual({
+      type: "tool_execution_end",
+      toolCallId: "call_1",
+      toolName: "bash",
+      result: { content: [{ type: "text", text: "ok" }] },
+      isError: false,
+      durationMs: 12,
+    });
   });
 
   it("decodes an extension_ui_request select dialog", () => {

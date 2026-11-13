@@ -24,3 +24,39 @@
   margin: 0;
   white-space: pre-wrap;
 }
+
+/* A message carrying thinking or tool calls spans the column: a tool card
+   squeezed into 65ch is unreadable, and the diff needs the width. */
+.gc-message--rich {
+  width: 100%;
+  max-width: 100%;
+}
+
+.gc-message__blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gc-thinking {
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 4px 10px;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.gc-thinking__summary {
+  cursor: pointer;
+  font-style: italic;
+  user-select: none;
+}
+
+.gc-thinking__text {
+  margin: 6px 0 4px;
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--muted);
+}

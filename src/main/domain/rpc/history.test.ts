@@ -25,7 +25,7 @@ describe("historyToMessages", () => {
     expect(historyToMessages(messages)).toEqual([{ id: "msg-0", role: "user", text: "look at this" }]);
   });
 
-  it("joins an assistant message's text parts and skips thinking and toolCall parts", () => {
+  it("rebuilds an assistant message's text, thinking and toolCall parts as ordered blocks", () => {
     const messages: RpcMessage[] = [
       {
         role: "assistant",
@@ -40,7 +40,18 @@ describe("historyToMessages", () => {
     ];
 
     expect(historyToMessages(messages)).toEqual([
-      { id: "msg-0", role: "assistant", text: "The answer is 4.", streaming: false },
+      {
+        id: "msg-0",
+        role: "assistant",
+        text: "The answer is 4.",
+        streaming: false,
+        blocks: [
+          { kind: "thinking", text: "let me think" },
+          { kind: "text", text: "The answer is " },
+          { kind: "tool", callId: "call_1", name: "bash", args: { command: "ls" }, status: "done" },
+          { kind: "text", text: "4." },
+        ],
+      },
     ]);
   });
 
@@ -81,7 +92,7 @@ describe("historyToMessages", () => {
     expect(historyToMessages([])).toEqual([]);
   });
 
-  it("skips an assistant message whose joined text is empty after trimming (tool-only or thinking-only content)", () => {
+  it("keeps a tool-only assistant message and drops only one that is whitespace text", () => {
     const messages: RpcMessage[] = [
       { role: "user", content: "run it", timestamp: 0 },
       {
@@ -100,7 +111,55 @@ describe("historyToMessages", () => {
 
     expect(result).toEqual([
       { id: "msg-0", role: "user", text: "run it" },
-      { id: "msg-1", role: "assistant", text: "done", streaming: false },
+      {
+        id: "msg-1",
+        role: "assistant",
+        text: "",
+        streaming: false,
+        blocks: [
+          { kind: "thinking", text: "let me check" },
+          { kind: "tool", callId: "call_1", name: "bash", args: { command: "ls" }, status: "done" },
+        ],
+      },
+      { id: "msg-2", role: "assistant", text: "done", streaming: false },
+    ]);
+  });
+
+  it("attaches a toolResult's output and error flag to its tool block", () => {
+    const messages: RpcMessage[] = [
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "call_9", name: "bash", arguments: { command: "boom" } }],
+        timestamp: 0,
+      },
+      {
+        role: "toolResult",
+        toolCallId: "call_9",
+        toolName: "bash",
+        content: [{ type: "text", text: "command not found" }],
+        isError: true,
+        timestamp: 0,
+      },
+    ];
+
+    expect(historyToMessages(messages)).toEqual([
+      {
+        id: "msg-0",
+        role: "assistant",
+        text: "",
+        streaming: false,
+        blocks: [
+          {
+            kind: "tool",
+            callId: "call_9",
+            name: "bash",
+            args: { command: "boom" },
+            status: "error",
+            output: "command not found",
+            isError: true,
+          },
+        ],
+      },
     ]);
   });
 });

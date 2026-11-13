@@ -23,13 +23,16 @@ export function MessageThread({ messages, dialogs, onAnswerDialog }: MessageThre
 
   // Safety net for the domain-level fix in chatReducer.ts/history.ts: an
   // assistant message that finalized (streaming !== true) with nothing but
-  // whitespace text renders as an empty grey bubble. It should already have
-  // been dropped upstream, but this belongs here too so no other producer
-  // of `messages` can reintroduce the same empty bubble. A still-streaming
-  // empty assistant message stays visible as the typing placeholder; user
-  // messages are never filtered.
+  // whitespace text renders as an empty grey bubble. A message that carries
+  // rich blocks (thinking or a tool call) is never empty, even when it has
+  // no text at all. A still-streaming empty assistant message stays visible
+  // as the typing placeholder; user messages are never filtered.
   const visibleMessages = messages.filter(
-    (message) => message.role !== MESSAGE_ROLE.ASSISTANT || message.streaming === true || message.text.trim().length > 0,
+    (message) =>
+      message.role !== MESSAGE_ROLE.ASSISTANT ||
+      message.streaming === true ||
+      message.text.trim().length > 0 ||
+      (message.blocks?.length ?? 0) > 0,
   );
   const isEmpty = visibleMessages.length === 0 && dialogs.length === 0;
 
