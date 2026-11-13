@@ -1,12 +1,17 @@
 {
-  "name": "gentle-shell-desktop",
+  "name": "cauce",
   "private": true,
   "version": "0.1.0",
   "type": "module",
   "main": "out/main/index.js",
-  "description": "Desktop chat window for Gentle Shell / pi.",
-  "author": "Gentleman-Programming",
+  "description": "Cauce — a desktop UI for gentle-shell / pi.",
+  "author": "Reflect Studio",
   "license": "MIT",
+  "homepage": "https://github.com/reflectstudio-ar/cauce",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/reflectstudio-ar/cauce.git"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "dev:web": "vite --config vite.web.config.ts",

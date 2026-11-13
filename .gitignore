@@ -10,3 +10,5 @@ release/
 .atl/
 # Local CodeGraph index
 .codegraph/
+# Local agent harness config
+.claude/

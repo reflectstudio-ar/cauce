@@ -4,8 +4,9 @@
 # as its own YAML file (rather than a `build` key in package.json) so
 # electron-builder's own schema/comments apply without fighting
 # package.json's JSON syntax.
-appId: dev.gentleman.gentle-shell
-productName: gentle shell
+# Reflect Studio's Cauce; the upstream app id stays only in git history.
+appId: ar.reflect.cauce
+productName: Cauce
 directories:
   output: release
 # electron-vite's own build (`pnpm build`) already produces `out/`;
